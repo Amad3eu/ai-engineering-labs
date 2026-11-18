@@ -1,0 +1,27 @@
+# Regras para assistentes de IA neste repositório (Cursor, Windsurf e afins)
+# A versão completa, com contexto e armadilhas, está em CLAUDE.md. Mudou uma, mude a outra.
+
+Projeto: monorepo TypeScript (pnpm workspaces + Turborepo) de laboratórios de Engenharia de IA.
+- packages/shared-observability: logger Pino e métricas de chamada de LLM.
+- packages/shared-llm: provedores (OpenAI, Gemini, OpenRouter, Ollama, mock), fallback, Model Tiering, Zod, custo.
+- packages/shared-vector: Postgres/pgvector, chunking, busca vetorial, lexical e híbrida.
+- labs/NN-nome: um padrão por laboratório. Entrada em src/index.ts, prompts em src/prompts.ts.
+Dependência só nesta direção: labs → shared-vector → shared-llm → shared-observability.
+
+Regras inegociáveis:
+1. Sempre valide resposta estruturada de LLM com Zod: use generateObject({ schema }) de @labs/shared-llm. Nunca JSON.parse solto em saída de modelo. Em schema de saída use .nullable(), não .optional(). Valide também toda outra entrada externa (resposta humana, arquivo, Redis, resultado de tool).
+2. Sempre registre métricas de execução via @labs/shared-observability. Chamada de LLM passa por @labs/shared-llm, que já registra modelo, latência, tokens, custo e cache hit. Não instancie SDK de provedor em laboratório. Cache hit registra com logLlmCall. Métrica não vai em console.log.
+3. Nunca coloque chave de API no código (vem do .env; o modelo é .env.example). Nunca misture prompt longo com lógica: prompts ficam em src/prompts.ts, com a instrução no system e o dado no prompt, entre tags.
+4. Ao implementar um experimento, atualize o README do laboratório: o diagrama Mermaid, se o fluxo mudou, e a tabela "Trade-offs e Métricas Observadas", com os números medidos e o modelo usado. Não invente número: sem medição, a célula fica com "—".
+
+Convenções:
+- Comentários em português, explicando o porquê. Ponto de extensão leva "PONTO DE EXTENSÃO:".
+- Regra de negócio e limite (teto de passos, política, permissões do agente) ficam em código, não no prompt.
+- Se o agente não pode fazer uma ação, não existe ferramenta para ela. Efeito fora do processo exige aprovação humana.
+- Entrada do modelo nunca compõe caminho de arquivo nem comando: compare com uma lista do que existe.
+- Logs em stderr, resultado em stdout. No servidor MCP via stdio, nada além do protocolo em stdout.
+- ESM: import relativo termina em .js.
+- Testes com node:test, em *.test.ts ao lado do código, sem rede.
+
+Antes de dar um trabalho por pronto: pnpm check (lint, typecheck, build e test).
+Rodar um laboratório: pnpm --filter @labs/<nome> dev. Sem chave no .env, roda com o provedor mock.

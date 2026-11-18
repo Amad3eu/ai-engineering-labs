@@ -1,0 +1,14 @@
+packages:
+  - packages/*
+  - labs/*
+
+# Versão única para o que mais de um workspace usa: no package.json fica "catalog:".
+catalog:
+  "@langchain/core": ^1.4.1
+  "@langchain/langgraph": ^1.7.5
+  zod: ^4.6.7
+
+# Nenhuma dependência roda script na instalação. O esbuild (usado pelo tsx) pede um,
+# mas funciona sem ele: o binário chega pelo pacote opcional da plataforma.
+allowBuilds:
+  esbuild: false

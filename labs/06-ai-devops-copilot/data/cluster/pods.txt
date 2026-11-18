@@ -1,0 +1,5 @@
+NAMESPACE   NAME                           READY   STATUS             RESTARTS        AGE
+prod        api-gateway-5c7d9b8f6d-2hx7k   1/1     Running            0               6d
+prod        checkout-7d9f8c6b5-k8s2p       0/1     CrashLoopBackOff   14 (2m ago)     41m
+prod        checkout-7d9f8c6b5-x2x4q       0/1     CrashLoopBackOff   14 (3m ago)     41m
+prod        search-6b8c4d7f9-qp4zn         1/1     Running            0               3d

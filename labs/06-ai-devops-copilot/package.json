@@ -1,0 +1,18 @@
+{
+  "name": "@labs/06-ai-devops-copilot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agente ReAct para análise de logs K8s e validação de IaC com dry-run.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx --conditions=@labs/source src/index.ts",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@labs/shared-llm": "workspace:*",
+    "@labs/shared-observability": "workspace:*",
+    "yaml": "^2.9.1",
+    "zod": "catalog:"
+  }
+}

@@ -1,0 +1,35 @@
+# Infra local dos laboratórios. Subir: docker compose up -d   ·   Zerar: docker compose down -v
+name: ai-engineering-labs
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: labs
+      POSTGRES_PASSWORD: labs
+      POSTGRES_DB: labs
+    ports:
+      # Só na própria máquina: a senha é de desenvolvimento e não deve ficar exposta na rede.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Roda uma vez, na criação do volume: ativa o pgvector e cria tabelas e índices.
+      - ./infra/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U labs -d labs"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

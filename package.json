@@ -1,0 +1,27 @@
+{
+  "name": "ai-engineering-labs",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Applied AI Engineering monorepo in TypeScript: hands-on labs covering Advanced RAG (Hybrid Search & Semantic Cache), Model Context Protocol (MCP), Autonomous & Multi-Agent Systems (LangGraph), AIOps, and Fine-Tuning Evals.",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@12.21.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "check": "turbo run lint typecheck build test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.8",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.23.15",
+    "turbo": "^2.11.0",
+    "typescript": "^7.0.2"
+  }
+}

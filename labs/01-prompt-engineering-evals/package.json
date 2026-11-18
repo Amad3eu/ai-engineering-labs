@@ -1,0 +1,18 @@
+{
+  "name": "@labs/01-prompt-engineering-evals",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Prompt chaining, structured outputs (Zod) e testes automatizados de regressão.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx --conditions=@labs/source src/index.ts",
+    "test": "node --conditions=@labs/source --import tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@labs/shared-llm": "workspace:*",
+    "@labs/shared-observability": "workspace:*",
+    "zod": "catalog:"
+  }
+}

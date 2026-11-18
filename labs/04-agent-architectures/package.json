@@ -1,0 +1,19 @@
+{
+  "name": "@labs/04-agent-architectures",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Padrões ReAct, Plan-and-Execute e Reflection usando LangGraph.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx --conditions=@labs/source src/index.ts",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@labs/shared-llm": "workspace:*",
+    "@labs/shared-observability": "workspace:*",
+    "@langchain/core": "catalog:",
+    "@langchain/langgraph": "catalog:",
+    "zod": "catalog:"
+  }
+}

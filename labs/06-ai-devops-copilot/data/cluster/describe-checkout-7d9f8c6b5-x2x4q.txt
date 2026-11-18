@@ -1,0 +1,28 @@
+Name:             checkout-7d9f8c6b5-x2x4q
+Namespace:        prod
+Node:             node-pool-a-3/10.0.4.17
+Status:           Running
+Controlled By:    ReplicaSet/checkout-7d9f8c6b5
+Containers:
+  checkout:
+    Image:          registry.acme.internal/checkout:latest
+    Port:           8080/TCP
+    State:          Waiting
+      Reason:       CrashLoopBackOff
+    Last State:     Terminated
+      Reason:       OOMKilled
+      Exit Code:    137
+      Started:      Wed, 18 Nov 2026 14:05:02 +0000
+      Finished:     Wed, 18 Nov 2026 14:05:08 +0000
+    Ready:          False
+    Restart Count:  14
+    Limits:
+      memory:  128Mi
+    Requests:
+      cpu:     100m
+      memory:  128Mi
+Events:
+  Type     Reason   Age                  From     Message
+  ----     ------   ----                 ----     -------
+  Normal   Pulled   3m (x15 over 41m)    kubelet  Container image "registry.acme.internal/checkout:latest" already present on machine
+  Warning  BackOff  2m (x58 over 40m)    kubelet  Back-off restarting failed container checkout in pod checkout-7d9f8c6b5-x2x4q

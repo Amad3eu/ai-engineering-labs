@@ -1,0 +1,21 @@
+# Dependências e saídas de build
+node_modules/
+dist/
+.turbo/
+*.tsbuildinfo
+
+# Saídas geradas pelos laboratórios (JSONL do lab 07)
+out/
+
+# Segredos: só o .env.example entra no repositório
+.env
+.env.*
+!.env.example
+
+# Logs de ferramenta. Não usar "*.log": o lab 06 versiona logs de exemplo em data/logs.
+npm-debug.log*
+pnpm-debug.log*
+
+# Sistema e editor
+.DS_Store
+.idea/

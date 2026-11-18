@@ -1,0 +1,19 @@
+{
+  "name": "@labs/05-multi-agent-systems",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Orquestração Supervisor e Hierarchical com Human-in-the-Loop (HITL).",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx --conditions=@labs/source src/index.ts",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@labs/shared-llm": "workspace:*",
+    "@labs/shared-observability": "workspace:*",
+    "@langchain/core": "catalog:",
+    "@langchain/langgraph": "catalog:",
+    "zod": "catalog:"
+  }
+}

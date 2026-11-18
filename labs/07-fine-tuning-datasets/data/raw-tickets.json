@@ -1,0 +1,37 @@
+[
+  { "text": "Fui cobrado duas vezes na fatura de outubro, preciso do estorno.", "label": "billing" },
+  { "text": "  Fui cobrado duas vezes na fatura de outubro,   preciso do estorno. ", "label": "billing" },
+  { "text": "Podem enviar a segunda via da nota fiscal de setembro para financeiro@cliente-exemplo.com.br?", "label": "billing" },
+  { "text": "O valor do plano subiu sem aviso, quero entender o reajuste.", "label": "Billing" },
+  { "text": "Meu cartão foi recusado na renovação e a assinatura foi suspensa.", "label": "billing" },
+  { "text": "Preciso alterar o CNPJ que aparece na fatura mensal.", "label": "billing" },
+  { "text": "Quero o reembolso do mês em que o serviço não foi usado.", "label": "billing" },
+
+  { "text": "A API devolve erro 500 para todos os nossos clientes desde as 14h.", "label": "outage" },
+  { "text": "O painel está fora do ar para a empresa inteira.", "label": "outage" },
+  { "text": "O PAINEL ESTÁ FORA DO AR PARA A EMPRESA INTEIRA!", "label": "outage" },
+  { "text": "Os webhooks pararam de chegar há uma hora, nenhum evento foi entregue.", "label": "outage" },
+  { "text": "Todas as requisições estão dando timeout desde cedo.", "label": "outage" },
+  { "text": "O login caiu para todos os usuários da minha organização, ninguém entra.", "label": "outage" },
+  { "text": "Os relatórios não carregam para ninguém, a tela fica em branco.", "label": "outage" },
+
+  { "text": "Não consigo entrar, o e-mail de redefinição de senha não chega.", "label": "access" },
+  { "text": "Perdi o celular com o autenticador, me liguem no (47) 99123-4567.", "label": "access" },
+  { "text": "Preciso dar permissão de administrador para um colega novo.", "label": "access" },
+  { "text": "Minha conta foi bloqueada depois de três tentativas de senha.", "label": "access" },
+  { "text": "O convite que enviei para a equipe expirou, como reenvio o acesso?", "label": "access" },
+  { "text": "Troquei de e-mail e não consigo mais fazer login. CPF do titular: 123.456.789-09.", "label": "access" },
+
+  { "text": "Como exporto os relatórios mensais em CSV?", "label": "question" },
+  { "text": "Qual é o limite de requisições por minuto do plano Pro?", "label": "question" },
+  { "text": "Vocês têm integração nativa com planilhas?", "label": "question" },
+  { "text": "Onde encontro a documentação da API de webhooks?", "label": "question" },
+  { "text": "É possível agendar o envio de um relatório toda segunda-feira?", "label": "question" },
+  { "text": "Qual a diferença entre os planos Pro e Enterprise?", "label": "question" },
+
+  { "text": "ok", "label": "question" },
+  { "text": "", "label": "billing" },
+  { "text": "Ganhe dinheiro rápido clicando neste link agora mesmo!!!", "label": "spam" },
+  { "text": "Ticket exportado sem rótulo pelo sistema antigo." },
+  { "text": null, "label": "access" }
+]

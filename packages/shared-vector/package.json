@@ -1,0 +1,31 @@
+{
+  "name": "@labs/shared-vector",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Postgres/pgvector: chunking, ingestão com embeddings e busca vetorial, lexical e híbrida (RRF).",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@labs/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc",
+    "test": "node --conditions=@labs/source --import tsx --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@labs/shared-llm": "workspace:*",
+    "@labs/shared-observability": "workspace:*",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1"
+  }
+}

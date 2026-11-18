@@ -1,0 +1,9 @@
+2026-11-18T14:05:02Z INFO  checkout starting version=2.31.0
+2026-11-18T14:05:02Z INFO  config loaded env=prod region=sa-east-1
+2026-11-18T14:05:03Z INFO  connected to payments-db pool=10
+2026-11-18T14:05:03Z INFO  loading price catalog into memory entries=480000
+2026-11-18T14:05:05Z WARN  heap usage high used_mb=96 limit_mb=128
+2026-11-18T14:05:06Z INFO  gc pause_ms=412
+2026-11-18T14:05:06Z WARN  heap usage high used_mb=119 limit_mb=128
+2026-11-18T14:05:07Z INFO  gc pause_ms=688
+2026-11-18T14:05:07Z ERROR catalog load incomplete loaded=431200 of=480000

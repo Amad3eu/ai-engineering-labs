@@ -1,0 +1,20 @@
+{
+  "name": "@labs/02-rag-patterns",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Benchmark: Basic RAG vs Hybrid Search (BM25 + pgvector) + Semantic Cache (Redis).",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx --conditions=@labs/source src/index.ts",
+    "test": "node --conditions=@labs/source --import tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@labs/shared-llm": "workspace:*",
+    "@labs/shared-observability": "workspace:*",
+    "@labs/shared-vector": "workspace:*",
+    "redis": "^6.3.1",
+    "zod": "catalog:"
+  }
+}

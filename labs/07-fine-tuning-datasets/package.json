@@ -1,0 +1,18 @@
+{
+  "name": "@labs/07-fine-tuning-datasets",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Limpeza de dados, geração de JSONL e testes A/B de modelos.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx --conditions=@labs/source src/index.ts",
+    "test": "node --conditions=@labs/source --import tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@labs/shared-llm": "workspace:*",
+    "@labs/shared-observability": "workspace:*",
+    "zod": "catalog:"
+  }
+}

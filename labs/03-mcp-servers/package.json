@@ -1,0 +1,19 @@
+{
+  "name": "@labs/03-mcp-servers",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Servidor MCP em TypeScript expondo Tools e Resources locais + cliente de teste.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx --conditions=@labs/source src/index.ts",
+    "server": "tsx --conditions=@labs/source src/server.ts",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@labs/shared-llm": "workspace:*",
+    "@labs/shared-observability": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "catalog:"
+  }
+}

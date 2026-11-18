@@ -1,8 +1,8 @@
 import { resetLlmMetrics, summarizeLlmCalls, timed } from '@labs/shared-observability';
 import { ingestDocument } from '@labs/shared-vector';
-import { CORPUS, QUESTIONS } from './corpus.js';
+import { CORPUS, PIPELINE_BATTERY, QUESTIONS } from './corpus.js';
+import type { Pipeline, PipelineAnswer } from './pipeline.js';
 import { answerWithRag, type Strategy } from './rag.js';
-import type { SemanticCache } from './semantic-cache.js';
 
 const TOP_K = 3;
 
@@ -56,41 +56,36 @@ export async function runRetrievalBenchmark(strategies: Strategy[] = ['basic', '
   return rows;
 }
 
+/** O que decidiu o caminho de uma resposta, em poucas palavras, para a coluna "decisão". */
+function describeDecision(result: PipelineAnswer): string {
+  if (result.source === 'cache') return `similaridade ${result.cacheSimilarity.toFixed(2)}`;
+  if (result.source === 'fast-tier') return `intenção ${result.intent}`;
+  const { relevant = 0, retrieved = 0 } = result.retrieval ?? {};
+  return `${relevant}/${retrieved} chunks aprovados${result.fallback ? ': aviso fixo' : ''}`;
+}
+
 /**
- * Efeito do cache semântico, em três passadas:
- *   1ª  cache vazio: tudo é calculado e guardado;
- *   2ª  as mesmas perguntas: tudo deveria vir do cache;
- *   3ª  as perguntas com outras palavras: aqui aparece o limiar de similaridade.
+ * A bateria do pipeline: seis perguntas, cada uma mirando uma decisão (veja corpus.ts).
+ * Para cada uma: por onde a resposta saiu, quanto demorou e quanto custou. Latência, tokens
+ * e custo vêm do acumulado de @labs/shared-observability, zerado antes de cada pergunta.
+ * As linhas saem na ordem da bateria.
  */
-export async function runCacheBenchmark(cache: SemanticCache) {
-  const passes: Array<[string, string[]]> = [
-    ['1ª: cache vazio', QUESTIONS.map((q) => q.question)],
-    ['2ª: mesmas perguntas', QUESTIONS.map((q) => q.question)],
-    ['3ª: paráfrases', QUESTIONS.map((q) => q.paraphrase)],
-  ];
+export async function runPipelineBenchmark(answer: Pipeline) {
   const rows = [];
 
-  for (const [name, questions] of passes) {
+  for (const testCase of PIPELINE_BATTERY) {
     resetLlmMetrics();
-    const latencies: number[] = [];
-    const similarities: number[] = [];
-    let hits = 0;
-
-    for (const question of questions) {
-      const { value, latencyMs } = await timed(() =>
-        cache.getOrCompute(question, async () => (await answerWithRag(question, 'hybrid', TOP_K)).answer),
-      );
-      latencies.push(latencyMs);
-      similarities.push(value.similarity);
-      if (value.cacheHit) hits++;
-    }
-
+    const { value: result, latencyMs } = await timed(() => answer(testCase));
     const usage = summarizeLlmCalls();
+
     rows.push({
-      passada: name,
-      'cache hits': `${hits}/${questions.length}`,
-      'similaridade média': mean(similarities).toFixed(2),
-      'latência média (ms)': Math.round(mean(latencies)),
+      fonte: result.source,
+      // Quando a fonte não é a esperada, a linha mostra as duas. Com modelo real isso
+      // acontece, e é um resultado: o limiar ou o roteador precisam de ajuste.
+      esperada: result.source === testCase.expectedSource ? 'ok' : `≠ ${testCase.expectedSource}`,
+      decisão: describeDecision(result),
+      modelo: result.model ?? '—',
+      'latência (ms)': Math.round(latencyMs),
       'tokens in/out': `${usage.tokensIn}/${usage.tokensOut}`,
       'custo estimado (USD)': usage.estimatedCostUsd.toFixed(6),
     });

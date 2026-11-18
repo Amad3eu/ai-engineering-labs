@@ -3,6 +3,8 @@
 // PONTO DE EXTENSÃO: troque pelos seus documentos. O benchmark só precisa que cada
 // pergunta de QUESTIONS aponte para a `source` que contém a resposta.
 
+import type { AnswerSource, PipelineRequest } from './pipeline.js';
+
 export interface CorpusDocument {
   source: string;
   text: string;
@@ -61,55 +63,89 @@ Acesso a dados de produção é concedido por 8 horas, mediante ticket, e fica r
 
 export interface EvalQuestion {
   question: string;
-  /** A mesma pergunta com outras palavras, para testar o cache semântico. */
-  paraphrase: string;
   /** A `source` do documento que contém a resposta. */
   expectedSource: string;
 }
 
-// Dois tipos de pergunta, de propósito:
+// Perguntas do benchmark de recuperação. Dois tipos, de propósito:
 // - com identificador exato (ERR-4012, X-RateLimit-Remaining), onde a busca lexical é forte;
 // - com vocabulário diferente do documento ("cópias de segurança" × "backup"), onde a
 //   busca semântica é forte.
 export const QUESTIONS: EvalQuestion[] = [
-  {
-    question: 'O que significa o erro ERR-4012?',
-    paraphrase: 'Qual é o significado do código ERR-4012?',
-    expectedSource: 'runbook-pagamentos',
-  },
-  {
-    question: 'O que fazer quando aparece ERR-4031?',
-    paraphrase: 'Como proceder diante do erro ERR-4031?',
-    expectedSource: 'runbook-pagamentos',
-  },
-  {
-    question: 'Qual cabeçalho mostra quantas requisições ainda posso fazer?',
-    paraphrase: 'Em qual header vejo o saldo de requisições que me resta?',
-    expectedSource: 'limites-da-api',
-  },
-  {
-    question: 'Quantas chamadas por minuto o plano Pro permite?',
-    paraphrase: 'Qual é o limite de requisições por minuto no plano Pro?',
-    expectedSource: 'limites-da-api',
-  },
-  {
-    question: 'Posso publicar uma versão nova na sexta-feira?',
-    paraphrase: 'É permitido subir uma versão para produção numa sexta?',
-    expectedSource: 'politica-de-deploy',
-  },
+  { question: 'O que significa o erro ERR-4012?', expectedSource: 'runbook-pagamentos' },
+  { question: 'O que fazer quando aparece ERR-4031?', expectedSource: 'runbook-pagamentos' },
+  { question: 'Qual cabeçalho mostra quantas requisições ainda posso fazer?', expectedSource: 'limites-da-api' },
+  { question: 'Quantas chamadas por minuto o plano Pro permite?', expectedSource: 'limites-da-api' },
+  { question: 'Posso publicar uma versão nova na sexta-feira?', expectedSource: 'politica-de-deploy' },
   {
     question: 'Por quanto tempo guardamos as cópias de segurança do banco?',
-    paraphrase: 'Qual é o prazo de retenção dos backups do banco de dados?',
     expectedSource: 'backups-e-retencao',
   },
   {
     question: 'Em quanto tempo o relatório pós-incidente precisa ficar pronto?',
-    paraphrase: 'Qual é o prazo para publicar o postmortem?',
     expectedSource: 'plantao-e-incidentes',
   },
   {
     question: 'De quanto em quanto tempo as credenciais de serviço são trocadas?',
-    paraphrase: 'Com que frequência as chaves de API são rotacionadas?',
     expectedSource: 'acesso-e-seguranca',
+  },
+];
+
+export interface PipelineCase extends PipelineRequest {
+  /** O que este caso exercita no pipeline. */
+  exercises: string;
+  /**
+   * Por onde a resposta deveria sair. Com um modelo real pode divergir, e é para mostrar
+   * isso que a coluna existe: o roteador e o limiar do cache são decisões a calibrar.
+   */
+  expectedSource: AnswerSource;
+}
+
+// Bateria do pipeline: seis perguntas, na ordem, cada uma mirando uma decisão.
+// A ordem importa: a 2 depende do que a 1 guardou no cache, e a 5 do que a 4 guardou.
+// PONTO DE EXTENSÃO: troque a 2 por uma paráfrase com sinônimos ("Qual é o significado do
+// código ERR-4012?") para ver o limiar do cache trabalhar com um embedding de verdade.
+export const PIPELINE_BATTERY: PipelineCase[] = [
+  {
+    question: 'O que significa o erro ERR-4012?',
+    userId: 'ana',
+    scope: 'global',
+    exercises: 'código de erro exato: o RRF traz o trecho que a busca lexical achou',
+    expectedSource: 'agentic-rag',
+  },
+  {
+    question: 'O erro ERR-4012 significa o quê?',
+    userId: 'bruno',
+    scope: 'global',
+    exercises: 'a pergunta 1 com outra redação, de outro usuário: cache global',
+    expectedSource: 'cache',
+  },
+  {
+    question: 'O que significa a sigla API?',
+    userId: 'ana',
+    scope: 'global',
+    exercises: 'dúvida geral: o roteador manda para o modelo barato, sem busca',
+    expectedSource: 'fast-tier',
+  },
+  {
+    question: 'O que fazer quando aparece ERR-4031?',
+    userId: 'ana',
+    scope: 'user-private',
+    exercises: 'outro código exato, em conversa privada: a resposta fica só para a Ana',
+    expectedSource: 'agentic-rag',
+  },
+  {
+    question: 'O que fazer quando aparece ERR-4031?',
+    userId: 'bruno',
+    scope: 'user-private',
+    exercises: 'a pergunta 4, idêntica, de outro usuário: o cache privado não pode vazar',
+    expectedSource: 'agentic-rag',
+  },
+  {
+    question: 'Qual é a política de reembolso de viagens a trabalho?',
+    userId: 'ana',
+    scope: 'global',
+    exercises: 'fora do escopo do manual: o grader reprova os trechos e sai o aviso fixo',
+    expectedSource: 'agentic-rag',
   },
 ];

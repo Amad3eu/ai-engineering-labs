@@ -92,7 +92,7 @@ flowchart LR
 | # | Laboratório | Status | Conceitos-chave | Stack |
 | --- | --- | --- | --- | --- |
 | 01 | [Prompt Engineering & Evals](labs/01-prompt-engineering-evals) | Em progresso | Prompt chaining, saída estruturada, política em código, suíte de regressão com piso de acurácia | Zod, `node:test` |
-| 02 | [RAG Patterns](labs/02-rag-patterns) | Em progresso | Chunking, busca vetorial × híbrida (RRF), recall@k e MRR, cache semântico | pgvector, full-text search, Redis |
+| 02 | [RAG Patterns](labs/02-rag-patterns) | Em progresso | Busca vetorial × híbrida com RRF explícito, cache semântico com escopo, roteamento por intenção, Agentic RAG com relevance grader | pgvector, full-text search, Redis |
 | 03 | [MCP Servers](labs/03-mcp-servers) | Em progresso | Tools, Resources, transporte stdio, validação de entrada, tool que chama LLM | `@modelcontextprotocol/sdk` |
 | 04 | [Agent Architectures](labs/04-agent-architectures) | Em progresso | ReAct, Plan-and-Execute, Reflection, tetos de passos | LangGraph |
 | 05 | [Multi-Agent Systems](labs/05-multi-agent-systems) | Em progresso | Supervisor, hierárquico com subgrafos, `interrupt` e retomada, aprovação humana obrigatória | LangGraph, checkpointer |

@@ -17,29 +17,41 @@ export interface CacheStore {
   scanIterator(options: { MATCH: string; COUNT: number }): AsyncIterable<string[]>;
 }
 
+/**
+ * De quem é uma resposta guardada, e quem pode recebê-la de volta.
+ *
+ * - `global`: montada só com informação que todos podem ver. Serve a qualquer usuário.
+ * - `user-private`: montada dentro de uma conversa privada. Só volta para o mesmo usuário.
+ *
+ * Um cache sem escopo é um vazamento esperando acontecer: a resposta escrita com os dados
+ * de uma pessoa seria servida à próxima que fizesse uma pergunta parecida.
+ */
+export type CacheScope = { kind: 'global' } | { kind: 'user-private'; userId: string };
+
 export interface SemanticCacheOptions {
   /**
-   * Similaridade de cosseno mínima para considerar "a mesma pergunta". É o botão do
-   * trade-off: baixo demais devolve resposta de outra pergunta; alto demais quase não acerta.
-   * O valor certo depende do modelo de embedding: calibre com perguntas reais.
+   * Similaridade de cosseno mínima para considerar "a mesma pergunta". Padrão: 0,95.
+   * É o botão do trade-off: baixo demais devolve a resposta de outra pergunta, que é um
+   * erro silencioso; alto demais quase não acerta. O valor certo depende do modelo de
+   * embedding: calibre com perguntas reais antes de mexer.
    */
   threshold?: number;
   /** Validade de cada entrada. Resposta guardada envelhece junto com os documentos. */
   ttlSeconds?: number;
-  /**
-   * Separa caches que não podem se misturar.
-   * PONTO DE EXTENSÃO: em sistema multiusuário, coloque aqui o cliente ou o nível de
-   * permissão. Sem isso, a resposta montada com documentos de um usuário pode ser servida
-   * a outro que não tem acesso a eles.
-   */
+  /** Separa instalações que dividem o mesmo Redis (ambiente, aplicação, execução de benchmark). */
   namespace?: string;
 }
 
-export interface CachedAnswer {
-  answer: string;
-  cacheHit: boolean;
-  /** Similaridade com a entrada mais próxima encontrada (0 quando o cache está vazio). */
+export interface CacheProbe {
+  /** Preenchido quando existe uma resposta guardada, visível neste escopo, acima do limiar. */
+  hit?: { answer: string; scope: CacheScope['kind'] };
+  /** Similaridade com a entrada visível mais próxima (0 quando não há nenhuma). */
   similarity: number;
+  /**
+   * Guarda a resposta calculada, no escopo da consulta. Reaproveita o embedding já pago na
+   * consulta. Quem chama decide se guarda: resposta de fallback, por exemplo, não deve entrar.
+   */
+  save(answer: string): Promise<void>;
 }
 
 // O conteúdo do Redis também é entrada externa: entrada corrompida é ignorada, não derruba a busca.
@@ -69,12 +81,45 @@ function cosine(a: number[], b: number[]): number {
   return normA > 0 && normB > 0 ? dot / Math.sqrt(normA * normB) : 0;
 }
 
+const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
+
+/**
+ * Onde uma consulta grava e de onde ela pode ler.
+ *
+ *   consulta global         grava em global         lê só global
+ *   consulta user-private   grava no próprio usuário  lê o próprio usuário e global
+ *
+ * Ler global de dentro de uma conversa privada não vaza nada. O contrário vazaria: uma
+ * consulta global nunca enxerga entrada privada, nem do próprio usuário, porque a resposta
+ * pode ir para uma tela que outras pessoas veem.
+ *
+ * O id do usuário entra na chave como hash. Ele é o único pedaço da chave que vem de fora,
+ * e o SCAN usa padrão glob: um id "*" cru faria a busca casar com as entradas de todos.
+ */
+function scopePrefixes(namespace: string, model: string, scope: CacheScope) {
+  const global = { kind: 'global' as const, prefix: `semcache:${namespace}:global:${model}:` };
+  if (scope.kind === 'global') return { write: global, read: [global] };
+
+  if (!scope.userId) {
+    // Sem dono, todas as conversas "privadas" cairiam no mesmo balde e se enxergariam.
+    throw new Error('Cache semântico: o escopo user-private exige um userId.');
+  }
+  const own = {
+    kind: 'user-private' as const,
+    prefix: `semcache:${namespace}:user:${sha256(scope.userId)}:${model}:`,
+  };
+  return { write: own, read: [own, global] };
+}
+
 export function createSemanticCache(store: CacheStore, options: SemanticCacheOptions = {}) {
-  const { threshold = 0.92, ttlSeconds = 3600, namespace = 'default' } = options;
+  const { threshold = 0.95, ttlSeconds = 3600, namespace = 'default' } = options;
 
   return {
-    /** Devolve a resposta guardada para uma pergunta equivalente, ou calcula, guarda e devolve. */
-    async getOrCompute(query: string, compute: () => Promise<string>): Promise<CachedAnswer> {
+    /**
+     * Procura uma resposta guardada para uma pergunta equivalente, dentro do que o escopo
+     * permite ler. Devolve também o `save` para gravar a resposta nova quando não houver acerto.
+     */
+    async probe(query: string, scope: CacheScope): Promise<CacheProbe> {
       const start = performance.now();
       // Custo fixo do cache: toda consulta paga um embedding, acerte ou não.
       const { vectors, model } = await embed([query], { label: 'cache:embedding' });
@@ -83,44 +128,45 @@ export function createSemanticCache(store: CacheStore, options: SemanticCacheOpt
 
       // O modelo de embedding entra na chave: vetores de modelos diferentes não se comparam,
       // então trocar de modelo começa um cache novo em vez de devolver acerto falso.
-      const prefix = `semcache:${namespace}:${model}:`;
+      const { read, write } = scopePrefixes(namespace, model, scope);
 
-      // shortcut: varredura linear, lê todas as entradas a cada consulta. Serve até alguns
-      // milhares. Acima disso, troque por um índice vetorial: vector sets do Redis 8,
-      // RediSearch, ou uma tabela com pgvector.
-      let best: { answer: string; similarity: number } | undefined;
-      for await (const keys of store.scanIterator({ MATCH: `${prefix}*`, COUNT: 200 })) {
-        if (keys.length === 0) continue;
-        for (const raw of await store.mGet(keys)) {
-          const entry = parseEntry(raw);
-          if (!entry) continue;
-          const similarity = cosine(vector, entry.embedding);
-          if (similarity > (best?.similarity ?? -1)) best = { answer: entry.answer, similarity };
+      // shortcut: varredura linear, lê todas as entradas visíveis a cada consulta. Serve até
+      // alguns milhares. Acima disso, troque por um índice vetorial: vector sets do Redis 8,
+      // RediSearch, ou uma tabela com pgvector (com o escopo como filtro).
+      let best: { answer: string; similarity: number; scope: CacheScope['kind'] } | undefined;
+      for (const { kind, prefix } of read) {
+        for await (const keys of store.scanIterator({ MATCH: `${prefix}*`, COUNT: 200 })) {
+          if (keys.length === 0) continue;
+          for (const raw of await store.mGet(keys)) {
+            const entry = parseEntry(raw);
+            if (!entry) continue;
+            const similarity = cosine(vector, entry.embedding);
+            if (similarity > (best?.similarity ?? -1)) best = { answer: entry.answer, similarity, scope: kind };
+          }
         }
       }
 
-      if (best && best.similarity >= threshold) {
-        // Um acerto não passa por @labs/shared-llm, então é registrado aqui: é esta linha
-        // que aparece com [CACHE_HIT] true.
-        logLlmCall({
-          model: 'semantic-cache',
-          provider: 'redis',
-          label: 'cache:hit',
-          latencyMs: performance.now() - start,
-          tokensIn: 0,
-          tokensOut: 0,
-          estimatedCostUsd: 0,
-          cacheHit: true,
+      const save = async (answer: string) => {
+        await store.set(write.prefix + sha256(query), JSON.stringify({ query, answer, embedding: vector }), {
+          expiration: { type: 'EX', value: ttlSeconds },
         });
-        return { answer: best.answer, cacheHit: true, similarity: best.similarity };
-      }
+      };
 
-      const answer = await compute();
-      const key = prefix + createHash('sha256').update(query).digest('hex');
-      await store.set(key, JSON.stringify({ query, answer, embedding: vector }), {
-        expiration: { type: 'EX', value: ttlSeconds },
+      if (!best || best.similarity < threshold) return { similarity: best?.similarity ?? 0, save };
+
+      // Um acerto não passa por @labs/shared-llm, então é registrado aqui: é esta linha
+      // que aparece com [CACHE_HIT] true.
+      logLlmCall({
+        model: 'semantic-cache',
+        provider: 'redis',
+        label: `cache:hit:${best.scope}`,
+        latencyMs: performance.now() - start,
+        tokensIn: 0,
+        tokensOut: 0,
+        estimatedCostUsd: 0,
+        cacheHit: true,
       });
-      return { answer, cacheHit: false, similarity: best?.similarity ?? 0 };
+      return { hit: { answer: best.answer, scope: best.scope }, similarity: best.similarity, save };
     },
   };
 }

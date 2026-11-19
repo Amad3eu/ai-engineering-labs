@@ -1,13 +1,16 @@
-// Lab 07: Fine-Tuning, da decisão ao teste A/B
+// Lab 07: Fine-Tuning, da decisão ao checkpoint de produção
 //
 //   1. Decision Framework (decision-framework.ts): prompt, RAG ou fine-tuning?
 //   2. Dataset (dataset-builder.ts): limpar, dividir 80/20, gravar e validar os JSONL.
 //   3. A/B (ab-eval.ts): modelo base com few-shot pesado × modelo ajustado com prompt enxuto.
 //   4. A decisão para este caso de uso, com o tamanho de few-shot que o A/B mediu.
+//   5. Plano de treino (lora-config.ts): rank, alpha, épocas e o método que cabe na GPU.
+//   6. Checkpoints (model-eval-harness.ts): overfitting, catastrophic forgetting e qual época
+//      vai para produção.
 //
-// O laboratório NÃO dispara o treino: custa dinheiro e depende do provedor. Sem modelo
-// ajustado, o braço "fine-tuned" é simulado pelo mock ou, com provedor real, é o modelo base
-// recebendo o prompt enxuto.
+// O laboratório NÃO dispara o treino: custa dinheiro e depende do provedor ou de uma GPU. Sem
+// modelo ajustado, o braço "fine-tuned" é simulado pelo mock ou, com provedor real, é o modelo
+// base recebendo o prompt enxuto. As métricas de checkpoint do passo 6 são um roteiro.
 //
 // Rodar: pnpm --filter @labs/07-fine-tuning-datasets dev
 // Medir um modelo ajustado: AB_FINE_TUNED_MODEL=<id> pnpm --filter ... dev
@@ -19,7 +22,9 @@ import { z } from 'zod';
 import { type Arm, type ArmResult, costPerRequestUsd, evaluateArm, projectSavings, tablePrice } from './ab-eval.js';
 import { buildDataset, type DatasetFile, type SplitStats, writeDataset } from './dataset-builder.js';
 import { evaluateApproach, REFERENCE_SCENARIOS } from './decision-framework.js';
+import { buildLoraTrainingPlan } from './lora-config.js';
 import { FORMAT_SLIP_EVERY, installMockScript } from './mock.js';
+import { CheckpointMetric, evaluateTrainingCheckpoints, QUALITY_GATES } from './model-eval-harness.js';
 import { fewShotSystem, TRIAGE_SYSTEM } from './prompts.js';
 
 installMockScript(); // só tem efeito sem chave de API; veja mock.ts
@@ -184,3 +189,89 @@ console.log(`\n4. Decisão para a triagem de tickets: ${decision.approach}`);
 for (const reason of decision.justification) console.log(`   · ${reason}`);
 console.log('   Trade-offs:');
 for (const tradeOff of decision.tradeOffs) console.log(`   · ${tradeOff}`);
+
+// --- 5. Plano de treino LoRA / QLoRA ----------------------------------------------------------
+// PONTO DE EXTENSÃO: o tamanho do modelo aberto que você vai ajustar e as GPUs que tem à mão.
+const BASE_PARAMS_BILLIONS = 8;
+const planFor = (availableVramGb: number) =>
+  buildLoraTrainingPlan({
+    baseParamsBillions: BASE_PARAMS_BILLIONS,
+    datasetSize: dataset.train.length, // as linhas do train.jsonl do passo 2
+    taskComplexity: 'format-style', // a triagem ensina formato, não raciocínio de domínio
+    availableVramGb,
+  });
+const plans = { 'GPU de 16 GB': planFor(16), 'GPU de 24 GB': planFor(24) };
+// Rank, alpha, learning rate e épocas saem da tarefa e do dataset, não da GPU: valem para as duas.
+const hyperparams = plans['GPU de 16 GB'];
+
+console.log(
+  `\n5. Plano de treino LoRA / QLoRA: modelo base de ${BASE_PARAMS_BILLIONS} bilhões de parâmetros, ${dataset.train.length} exemplos de treino`,
+);
+console.table([
+  {
+    'rank (r)': hyperparams.r,
+    'lora alpha': hyperparams.loraAlpha,
+    'learning rate': hyperparams.learningRate.toExponential(),
+    épocas: hyperparams.epochs,
+    'parâmetros treináveis': `~${hyperparams.trainableParamsPercent}% (~${hyperparams.trainableParamsMillions} milhões)`,
+  },
+]);
+console.table(
+  Object.fromEntries(
+    Object.entries(plans).map(([gpu, plan]) => [
+      gpu,
+      {
+        'VRAM LoRA 16-bit (GB)': plan.estimatedVramGb.lora,
+        'VRAM QLoRA 4-bit (GB)': plan.estimatedVramGb.qlora,
+        recomendação: plan.recommendedMethod,
+      },
+    ]),
+  ),
+);
+for (const alert of hyperparams.alerts) console.log(`[AVISO] ${alert.message}`);
+console.log(
+  'A VRAM é estimativa de piso: pesos carregados mais uma folga. Ativações de batch grande não entram: veja o README.',
+);
+
+// --- 6. Avaliação de checkpoints --------------------------------------------------------------
+// PONTO DE EXTENSÃO: troque o arquivo pelas métricas do seu treino, uma linha por época.
+const checkpoints = z
+  .array(CheckpointMetric)
+  .parse(JSON.parse(await readFile(join(ROOT, 'data/simulated-checkpoints.json'), 'utf8')));
+const harness = evaluateTrainingCheckpoints(checkpoints);
+
+const OVERFITTING = { none: 'não', mild: 'leve', severe: 'SEVERO' };
+console.log(
+  `\n6. Avaliação de checkpoints: overfitting e catastrophic forgetting (modelo base no raciocínio geral: ${percent(harness.baselineGeneralAccuracy)})`,
+);
+console.table(
+  harness.checkpoints.map((verdict) => {
+    // Raciocínio geral em relação ao modelo base, em pontos de acurácia.
+    const delta = Math.round(-verdict.generalAccuracyDrop * 100);
+    return {
+      época: verdict.epoch,
+      trainLoss: verdict.trainLoss,
+      valLoss: verdict.valLoss,
+      overfitting:
+        verdict.overfitting === 'none'
+          ? OVERFITTING.none
+          : `${OVERFITTING[verdict.overfitting]} (+${percent(verdict.valLossRise)})`,
+      'acurácia de domínio': percent(verdict.domainSchemaAccuracy),
+      'raciocínio geral': `${percent(verdict.generalReasoningAccuracy)} (${delta > 0 ? '+' : ''}${delta} pts)`,
+      forgetting: verdict.catastrophicForgetting ? 'SIM' : 'não',
+      gate: verdict.passesGates ? 'passa' : 'REPROVADO',
+    };
+  }),
+);
+console.log(
+  `Gates: overfitting severo reprova (valLoss mais de ${percent(QUALITY_GATES.severeValLossRise)} acima do melhor valLoss já visto: é a % entre parênteses), ` +
+    `e catastrophic forgetting reprova (raciocínio geral mais de ${Math.round(QUALITY_GATES.maxGeneralAccuracyDrop * 100)} pontos abaixo do modelo base).`,
+);
+for (const alert of harness.alerts)
+  console.log(`[${alert.level === 'critical' ? 'CRÍTICO' : 'AVISO'}] ${alert.message}`);
+console.log(`Decisão: ${harness.decision === 'promote' ? 'promover' : 'REJEITAR o treino'}. ${harness.reason}`);
+// Rejeitar quer dizer: nenhum checkpoint vai para produção. O script termina com código 1.
+if (harness.decision === 'reject') process.exitCode = 1;
+console.log(
+  'Métricas simuladas (data/simulated-checkpoints.json): nenhum treino rodou. Troque o arquivo pelas métricas do seu treino.',
+);

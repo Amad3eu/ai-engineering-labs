@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { cleanDataset, redactPii, splitDataset, toChatJsonl, validateChatJsonl } from './clean.js';
+import { cleanDataset, redactPii } from './clean.js';
 
 test('redactPii troca e-mail, CPF e telefone, e não mexe no resto', () => {
   assert.equal(redactPii('Escrevam para ana.silva+nf@empresa.com.br hoje.'), 'Escrevam para [EMAIL] hoje.');
@@ -13,53 +13,22 @@ test('redactPii troca e-mail, CPF e telefone, e não mexe no resto', () => {
   assert.equal(redactPii(untouched), untouched);
 });
 
-test('cleanDataset normaliza, remove PII e conta cada descarte pelo motivo', () => {
+test('cleanDataset normaliza texto e rótulos, remove PII e conta cada descarte pelo motivo', () => {
   const { kept, dropped } = cleanDataset([
-    { text: '  Fui cobrado   duas vezes na fatura. ', label: 'Billing' },
-    { text: 'FUI COBRADO DUAS VEZES NA FATURA!', label: 'billing' },
-    { text: 'Mandem a nota para fin@cliente.com, por favor.', label: 'billing' },
-    { text: 'ok', label: 'question' },
-    { text: 'Ganhe dinheiro rápido neste link!', label: 'spam' },
+    { text: '  Fui cobrado   duas vezes na fatura. ', category: 'Billing', priority: ' p2 ' },
+    { text: 'FUI COBRADO DUAS VEZES NA FATURA!', category: 'billing', priority: 'P2' },
+    { text: 'Mandem a nota para fin@cliente.com, por favor.', category: 'billing', priority: 'P3' },
+    { text: 'ok', category: 'question', priority: 'P3' },
+    { text: 'Ganhe dinheiro rápido neste link!', category: 'spam', priority: 'P3' },
+    { text: 'Ticket com uma prioridade que não existe.', category: 'question', priority: 'urgente' },
     { text: 'Registro sem rótulo do sistema antigo.' },
-    { text: null, label: 'access' },
+    { text: 'Registro sem prioridade do sistema antigo.', category: 'access' },
+    { text: null, category: 'access', priority: 'P2' },
   ]);
 
   assert.deepEqual(kept, [
-    { text: 'Fui cobrado duas vezes na fatura.', label: 'billing' },
-    { text: 'Mandem a nota para [EMAIL], por favor.', label: 'billing' },
+    { text: 'Fui cobrado duas vezes na fatura.', category: 'billing', priority: 'P2' },
+    { text: 'Mandem a nota para [EMAIL], por favor.', category: 'billing', priority: 'P3' },
   ]);
-  assert.deepEqual(dropped, { invalid: 2, unknownLabel: 1, tooShort: 1, duplicate: 1 });
-});
-
-test('splitDataset é estável, não perde nem repete exemplo, e ignora a ordem de entrada', () => {
-  const examples = Array.from({ length: 20 }, (_, i) => ({
-    text: `Ticket de exemplo número ${i}`,
-    label: 'question' as const,
-  }));
-
-  const first = splitDataset(examples);
-  const shuffled = splitDataset(examples.toReversed());
-
-  assert.equal(first.validation.length, 4);
-  assert.equal(first.train.length, 16);
-  assert.deepEqual(first, shuffled);
-
-  const all = [...first.train, ...first.validation].map((example) => example.text);
-  assert.equal(new Set(all).size, 20);
-});
-
-test('o JSONL gerado passa na própria validação, e uma linha quebrada é recusada', () => {
-  const jsonl = toChatJsonl(
-    [
-      { text: 'O painel está fora do ar.', label: 'outage' },
-      { text: 'Como exporto em CSV? Tem "aspas" e\nquebra de linha.', label: 'question' },
-    ],
-    'Classifique o ticket.',
-  );
-
-  assert.equal(jsonl.trimEnd().split('\n').length, 2);
-  assert.equal(validateChatJsonl(jsonl), 2);
-
-  const broken = jsonl.replace('"outage"', '"urgente"');
-  assert.throws(() => validateChatJsonl(broken), /linha 1/);
+  assert.deepEqual(dropped, { invalid: 3, unknownLabel: 2, tooShort: 1, duplicate: 1 });
 });

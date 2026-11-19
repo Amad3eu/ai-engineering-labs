@@ -1,27 +1,10 @@
-import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { Category, type Example, Priority } from './schema.js';
 
-// Funções puras de preparo do dataset. Ficam separadas do script porque são o que mais
+// Funções puras de limpeza do dado bruto. Ficam separadas do pipeline porque são o que mais
 // precisa de teste: um erro aqui vira defeito treinado dentro do modelo.
 
-export const Label = z.enum(['billing', 'outage', 'access', 'question']);
-export type Label = z.infer<typeof Label>;
-
-export interface Example {
-  text: string;
-  label: Label;
-}
-
-/** Formato de chat para fine-tuning: uma conversa completa por linha do JSONL. */
-export const ChatExample = z.object({
-  messages: z.tuple([
-    z.object({ role: z.literal('system'), content: z.string().min(1) }),
-    z.object({ role: z.literal('user'), content: z.string().min(1) }),
-    z.object({ role: z.literal('assistant'), content: Label }),
-  ]),
-});
-
-const RawRecord = z.object({ text: z.string(), label: z.string() });
+const RawRecord = z.object({ text: z.string(), category: z.string(), priority: z.string() });
 
 /** Texto mais curto que isto não carrega sinal para classificar. */
 const MIN_CHARS = 15;
@@ -61,8 +44,8 @@ export interface CleanReport {
  * Valida, normaliza, remove PII e deduplica. Devolve também a contagem do que saiu e por
  * quê: descartar em silêncio esconde problema na origem do dado.
  *
- * PONTO DE EXTENSÃO: balancear classes, detectar o mesmo texto com rótulos diferentes
- * (hoje vale o primeiro) e filtrar idioma entram como passos aqui.
+ * PONTO DE EXTENSÃO: detectar o mesmo texto com rótulos diferentes (hoje vale o primeiro)
+ * e filtrar idioma entram como passos aqui.
  */
 export function cleanDataset(records: unknown[]): CleanReport {
   const report: CleanReport = { kept: [], dropped: { invalid: 0, unknownLabel: 0, tooShort: 0, duplicate: 0 } };
@@ -74,8 +57,10 @@ export function cleanDataset(records: unknown[]): CleanReport {
       report.dropped.invalid++;
       continue;
     }
-    const label = Label.safeParse(raw.data.label.trim().toLowerCase());
-    if (!label.success) {
+    // Rótulo digitado à mão chega com caixa e espaço variados: "Billing", " p2 ".
+    const category = Category.safeParse(raw.data.category.trim().toLowerCase());
+    const priority = Priority.safeParse(raw.data.priority.trim().toUpperCase());
+    if (!category.success || !priority.success) {
       report.dropped.unknownLabel++;
       continue;
     }
@@ -90,46 +75,7 @@ export function cleanDataset(records: unknown[]): CleanReport {
       continue;
     }
     seen.add(key);
-    report.kept.push({ text, label: label.data });
+    report.kept.push({ text, category: category.data, priority: priority.data });
   }
   return report;
-}
-
-/**
- * Separa treino e validação de forma estável: ordena pelo hash do texto e tira um a cada
- * `validationEvery`. A mesma entrada dá sempre a mesma divisão, e um exemplo nunca muda
- * de lado entre execuções, o que contaminaria a comparação entre modelos.
- */
-export function splitDataset(examples: Example[], validationEvery = 5): { train: Example[]; validation: Example[] } {
-  const hash = (text: string) => createHash('sha256').update(text).digest('hex');
-  const ordered = examples.toSorted((a, b) => hash(a.text).localeCompare(hash(b.text)));
-  return {
-    train: ordered.filter((_, index) => index % validationEvery !== 0),
-    validation: ordered.filter((_, index) => index % validationEvery === 0),
-  };
-}
-
-export function toChatJsonl(examples: Example[], system: string): string {
-  return examples
-    .map(({ text, label }) =>
-      JSON.stringify({
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: text },
-          { role: 'assistant', content: label },
-        ],
-      } satisfies z.infer<typeof ChatExample>),
-    )
-    .join('\n')
-    .concat('\n');
-}
-
-/** Relê um JSONL e valida cada linha. Devolve o número de exemplos; lança no primeiro inválido. */
-export function validateChatJsonl(jsonl: string): number {
-  const lines = jsonl.split('\n').filter(Boolean);
-  lines.forEach((line, index) => {
-    const parsed = ChatExample.safeParse(JSON.parse(line));
-    if (!parsed.success) throw new Error(`JSONL inválido na linha ${index + 1}:\n${z.prettifyError(parsed.error)}`);
-  });
-  return lines.length;
 }

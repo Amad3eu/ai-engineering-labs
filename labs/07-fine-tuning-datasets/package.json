@@ -2,7 +2,7 @@
   "name": "@labs/07-fine-tuning-datasets",
   "version": "0.1.0",
   "private": true,
-  "description": "Limpeza de dados, geração de JSONL e testes A/B de modelos.",
+  "description": "Decision framework, curadoria de dataset JSONL e teste A/B de fine-tuning.",
   "license": "MIT",
   "type": "module",
   "scripts": {

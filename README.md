@@ -19,34 +19,6 @@ Três decisões valem para todos os laboratórios:
 [10:59:44] INFO: [MODEL] mock-fast [LATENCY_MS] 0 [TOKENS_IN/OUT] 126/38 [ESTIMATED_COST_USD] 0.000000 [CACHE_HIT] false · triage:extract
 ```
 
-<!-- markdownlint-disable MD033 MD001 -->
-<details>
-<summary>Metadados sugeridos do repositório: About, Topics e checklist de configuração</summary>
-
-#### About
-
-> Applied AI Engineering monorepo in TypeScript: hands-on labs covering Advanced RAG (Hybrid Search & Semantic Cache), Model Context Protocol (MCP), Autonomous & Multi-Agent Systems (LangGraph), AIOps, and Fine-Tuning Evals.
-
-#### Topics
-
-`ai-engineering` `llm` `rag` `mcp` `model-context-protocol` `langgraph` `ai-agents` `typescript` `pgvector` `semantic-cache` `aiops` `monorepo`
-
-#### Checklist de configuração inicial
-
-- [x] Descrição (About) preenchida
-- [ ] Topics adicionados:
-
-  ```bash
-  gh repo edit Amad3eu/ai-engineering-labs --add-topic ai-engineering,llm,rag,mcp,model-context-protocol,langgraph,ai-agents,typescript,pgvector,semantic-cache,aiops,monorepo
-  ```
-
-- [ ] Visibilidade alterada para pública, quando for a hora de usar como portfólio
-- [ ] Proteção do ramo `main` exigindo o check `lint, typecheck, build, test`
-- [ ] Tabelas de métricas dos laboratórios preenchidas com um provedor real
-
-</details>
-<!-- markdownlint-enable MD033 MD001 -->
-
 ## Arquitetura
 
 Os laboratórios não falam com provedores nem com o banco diretamente: consomem os três pacotes compartilhados, e é neles que ficam fallback, validação, custo e métricas.

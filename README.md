@@ -69,7 +69,7 @@ flowchart LR
 | 04 | [Agent Architectures](labs/04-agent-architectures) | Em progresso | ReAct, Plan-and-Execute, Reflection, tetos de passos | LangGraph |
 | 05 | [Multi-Agent Systems](labs/05-multi-agent-systems) | Em progresso | Supervisor, hierárquico com subgrafos, `interrupt` e retomada, aprovação humana obrigatória | LangGraph, checkpointer |
 | 06 | [AI DevOps Copilot](labs/06-ai-devops-copilot) | Em progresso | ReAct sem framework, ferramentas somente leitura, dry-run de manifesto, defesa contra injeção via log | `yaml`, Zod |
-| 07 | [Fine-Tuning Datasets](labs/07-fine-tuning-datasets) | Em progresso | Decision framework (prompt × RAG × fine-tuning), curadoria e validação de JSONL com alertas de qualidade, teste A/B com projeção de economia, plano de treino LoRA/QLoRA e harness de checkpoints (overfitting e catastrophic forgetting) | Zod, `node:crypto` |
+| 07 | [Fine-Tuning Datasets](labs/07-fine-tuning-datasets) | Em progresso | Decision framework (prompt × RAG × fine-tuning), dataset JSONL com gate de PII, quase duplicatas e alertas de qualidade, teste A/B com projeção de economia, plano de treino LoRA/QLoRA, harness de checkpoints (overfitting e catastrophic forgetting) e payback com NPV em 12 meses | Zod, `node:crypto` |
 
 Próximos experimentos:
 

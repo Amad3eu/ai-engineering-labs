@@ -7,23 +7,42 @@ import {
   assessQuality,
   buildDataset,
   ChatLine,
+  dropNearDuplicates,
   estimateTokens,
+  jaccardSimilarity,
+  NEAR_DUPLICATE,
   QUALITY_LIMITS,
   type SplitStats,
+  shingles,
   splitDataset,
   toChatJsonl,
   validateChatJsonl,
   writeDataset,
 } from './dataset-builder.js';
+import { sanitizePii } from './pii-sanitizer.js';
 import { Category, type Example } from './schema.js';
 
 const SYSTEM = 'Faça a triagem do ticket.';
 
-/** `perCategory` tickets por categoria, todos com texto diferente. */
+// Um assunto por ticket: texto que só muda em um número é quase duplicata, e o pipeline tira.
+const SUBJECTS = [
+  'fatura',
+  'senha',
+  'relatório',
+  'webhook',
+  'painel',
+  'convite',
+  'plano',
+  'cartão',
+  'certificado',
+  'integração',
+];
+
+/** `perCategory` tickets por categoria (até 10), todos de assunto diferente. */
 const examples = (perCategory: number): Example[] =>
   Category.options.flatMap((category) =>
-    Array.from({ length: perCategory }, (_, i) => ({
-      text: `Ticket de exemplo número ${i} da categoria ${category}`,
+    SUBJECTS.slice(0, perCategory).map((subject) => ({
+      text: `Ticket de exemplo sobre ${subject} da categoria ${category}`,
       category,
       priority: 'P3' as const,
     })),
@@ -172,11 +191,17 @@ test('assessQuality: classe ausente do treino é erro; ausente só da validaçã
 
 test('buildDataset vai do dado bruto aos arquivos e ao relatório', () => {
   const clean = examples(10);
-  const raw = [...clean, clean[0], { text: 'Registro sem rótulo nenhum, do sistema antigo.' }];
+  const raw = [
+    ...clean,
+    clean[0], // cópia exata
+    { ...clean[1], text: `Boa tarde, ${clean[1]?.text}!` }, // quase duplicata: só a saudação muda
+    { text: 'Registro sem rótulo nenhum, do sistema antigo.' },
+  ];
   const { train, validation, files, report } = buildDataset(raw, SYSTEM);
 
-  assert.equal(report.raw, 42);
-  assert.deepEqual(report.dropped, { invalid: 1, unknownLabel: 0, tooShort: 0, duplicate: 1 });
+  assert.equal(report.raw, 43);
+  assert.deepEqual(report.dropped, { invalid: 1, unknownLabel: 0, tooShort: 0, duplicate: 1, nearDuplicate: 1 });
+  assert.deepEqual(report.piiRedactions, { CPF: 0, EMAIL: 0, PHONE: 0 });
   assert.equal(train.length, 32);
   assert.equal(validation.length, 8);
   assert.deepEqual(report.train.byCategory, { billing: 8, outage: 8, access: 8, question: 8 });
@@ -214,4 +239,85 @@ test('writeDataset grava train.jsonl e val.jsonl, e valida o que releu do disco'
     files: { ...dataset.files, 'val.jsonl': `${dataset.files['val.jsonl']}linha quebrada\n` },
   };
   await assert.rejects(writeDataset(broken, dir), /val\.jsonl tem linha inválida:\n {2}linha 9: não é JSON válido/);
+});
+
+// --- Quase duplicatas ---------------------------------------------------------------------------
+
+const ticket = (text: string): Example => ({ text, category: 'billing', priority: 'P2' });
+/** `count` palavras diferentes, sem número: "palavraa palavrab palavrac ...". */
+const distinctWords = (count: number) =>
+  Array.from({ length: count }, (_, i) => `palavra${'abcdefghijklmnopqrstuvwxyz'[i]}`);
+
+test('shingles: caixa, acento, pontuação, saudação e número não diferenciam dois tickets', () => {
+  assert.deepEqual([...shingles('Olá, bom dia! O PEDIDO 48213 atrasou.')], ['o pedido', 'pedido 0', '0 atrasou']);
+  assert.deepEqual(shingles('Boa tarde. O pedido 51977 atrasou'), shingles('o pedido 7 atrasou'));
+  assert.deepEqual([...shingles('um dois três quatro', 3)], ['um dois tres', 'dois tres quatro']);
+
+  // Saudação só sai do começo, e só como palavra inteira.
+  assert.deepEqual([...shingles('Oito boletos, bom dia')], ['oito boletos', 'boletos bom', 'bom dia']);
+  // Texto mais curto que um shingle vira um shingle só; sem palavra nenhuma, conjunto vazio.
+  assert.deepEqual([...shingles('Estorno!')], ['estorno']);
+  assert.equal(shingles('...').size, 0);
+});
+
+test('jaccardSimilarity: interseção sobre união, e conjunto vazio não é duplicata de nada', () => {
+  const set = (...items: string[]) => new Set(items);
+  assert.equal(jaccardSimilarity(set('a', 'b', 'c'), set('c', 'b', 'a')), 1);
+  assert.equal(jaccardSimilarity(set('a', 'b'), set('c', 'd')), 0);
+  assert.equal(jaccardSimilarity(set('a', 'b', 'c'), set('b', 'c', 'd')), 0.5); // 2 em comum, 4 na união
+  assert.equal(jaccardSimilarity(set(), set()), 0);
+  assert.equal(jaccardSimilarity(set('a'), set()), 0);
+});
+
+test('dropNearDuplicates: saudação e ID diferentes não fazem um ticket novo, e fica o primeiro', () => {
+  const first = ticket('Fui cobrado duas vezes na fatura de outubro, pedido 48213.');
+  const otherMonth = ticket('Olá, fui cobrado duas vezes na fatura de novembro, pedido 48213.');
+  const { kept, dropped } = dropNearDuplicates([
+    first,
+    ticket('Bom dia! Fui cobrado duas vezes na fatura de outubro, pedido 51977.'),
+    otherMonth, // outro mês é outro ticket: 6 shingles em comum de 10
+    ticket('FUI COBRADO DUAS VEZES NA FATURA DE OUTUBRO... PEDIDO 7'),
+  ]);
+
+  assert.deepEqual(kept, [first, otherMonth]);
+  assert.equal(dropped, 2);
+});
+
+test('dropNearDuplicates: Jaccard de 0,85 derruba; logo abaixo, o ticket fica', () => {
+  assert.equal(NEAR_DUPLICATE.threshold, 0.85);
+  const base = ticket(distinctWords(19).join(' ')); // 18 shingles
+  // 17 shingles em comum. Com 2 novos, a união tem 20: 17/20 = 0,85. Com 3 novos, 21: 0,81.
+  const atThreshold = ticket([...distinctWords(18), 'outra', 'coisa'].join(' '));
+  const below = ticket([...distinctWords(18), 'outra', 'coisa', 'ainda'].join(' '));
+
+  assert.equal(jaccardSimilarity(shingles(base.text), shingles(atThreshold.text)), 0.85);
+  assert.deepEqual(dropNearDuplicates([base, atThreshold]), { kept: [base], dropped: 1 });
+  assert.deepEqual(dropNearDuplicates([base, below]), { kept: [base, below], dropped: 0 });
+  // O corte é parâmetro: mais frouxo, o segundo também cai.
+  assert.deepEqual(dropNearDuplicates([base, below], 0.8), { kept: [base], dropped: 1 });
+});
+
+test('nenhuma PII chega aos JSONL: o gate roda antes de o texto entrar no dataset', () => {
+  const raw = examples(3).map((example) => ({
+    ...example,
+    text: `${example.text}. Contato: ana@empresa.com, (47) 99123-4567, CPF 123.456.789-09`,
+  }));
+  const { files, report } = buildDataset(raw, SYSTEM);
+  const written = files['train.jsonl'] + files['val.jsonl'];
+
+  assert.deepEqual(report.piiRedactions, { CPF: 12, EMAIL: 12, PHONE: 12 });
+  assert.match(written, /Contato: <EMAIL>, <PHONE>, CPF <CPF>/);
+  assert.deepEqual(sanitizePii(written).redactions, []);
+});
+
+test('o dado de exemplo: 50 registros, 40 aproveitados, 2 quase duplicatas e 3 PII mascaradas', async () => {
+  const file = join(import.meta.dirname, '..', 'data', 'raw-tickets.json');
+  const { files, report } = buildDataset(JSON.parse(await readFile(file, 'utf8')), SYSTEM);
+
+  // Se este teste quebrar, o dado mudou e os números do dataset no README deixaram de valer.
+  assert.equal(report.raw, 50);
+  assert.deepEqual(report.dropped, { invalid: 2, unknownLabel: 2, tooShort: 2, duplicate: 2, nearDuplicate: 2 });
+  assert.deepEqual(report.piiRedactions, { CPF: 1, EMAIL: 1, PHONE: 1 });
+  assert.equal(report.train.examples + report.validation.examples, 40);
+  assert.deepEqual(sanitizePii(files['train.jsonl'] + files['val.jsonl']).redactions, []);
 });

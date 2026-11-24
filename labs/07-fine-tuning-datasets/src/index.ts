@@ -1,12 +1,14 @@
-// Lab 07: Fine-Tuning, da decisão ao checkpoint de produção
+// Lab 07: Fine-Tuning, da decisão ao retorno do investimento
 //
 //   1. Decision Framework (decision-framework.ts): prompt, RAG ou fine-tuning?
-//   2. Dataset (dataset-builder.ts): limpar, dividir 80/20, gravar e validar os JSONL.
+//   2. Dataset (dataset-builder.ts): mascarar PII (pii-sanitizer.ts), tirar duplicatas e quase
+//      duplicatas, dividir 80/20, gravar e validar os JSONL.
 //   3. A/B (ab-eval.ts): modelo base com few-shot pesado × modelo ajustado com prompt enxuto.
 //   4. A decisão para este caso de uso, com o tamanho de few-shot que o A/B mediu.
 //   5. Plano de treino (lora-config.ts): rank, alpha, épocas e o método que cabe na GPU.
 //   6. Checkpoints (model-eval-harness.ts): overfitting, catastrophic forgetting e qual época
 //      vai para produção.
+//   7. Payback (financial-npv.ts): fluxo líquido mensal, break-even e NPV em 12 meses.
 //
 // O laboratório NÃO dispara o treino: custa dinheiro e depende do provedor ou de uma GPU. Sem
 // modelo ajustado, o braço "fine-tuned" é simulado pelo mock ou, com provedor real, é o modelo
@@ -22,6 +24,7 @@ import { z } from 'zod';
 import { type Arm, type ArmResult, costPerRequestUsd, evaluateArm, projectSavings, tablePrice } from './ab-eval.js';
 import { buildDataset, type DatasetFile, type SplitStats, writeDataset } from './dataset-builder.js';
 import { evaluateApproach, REFERENCE_SCENARIOS } from './decision-framework.js';
+import { calculateFineTuningPayback, NPV_HORIZON_MONTHS } from './financial-npv.js';
 import { buildLoraTrainingPlan } from './lora-config.js';
 import { FORMAT_SLIP_EVERY, installMockScript } from './mock.js';
 import { CheckpointMetric, evaluateTrainingCheckpoints, QUALITY_GATES } from './model-eval-harness.js';
@@ -56,8 +59,10 @@ const dataset = buildDataset(records, TRIAGE_SYSTEM);
 const { report } = dataset;
 const kept = report.train.examples + report.validation.examples;
 
-console.log('\n2. Dataset: limpeza, divisão 80/20 e JSONL de chat');
+console.log('\n2. Dataset: gate de PII, deduplicação, divisão 80/20 e JSONL de chat');
 console.table([{ 'registros brutos': report.raw, aproveitados: kept, ...report.dropped }]);
+const masked = Object.entries(report.piiRedactions).map(([type, count]) => `${count} <${type}>`);
+console.log(`PII mascarada pelo gate, antes de o texto entrar no dataset: ${masked.join(', ')}.`);
 
 const splits: Array<[DatasetFile, SplitStats]> = [
   ['train.jsonl', report.train],
@@ -274,4 +279,51 @@ console.log(`Decisão: ${harness.decision === 'promote' ? 'promover' : 'REJEITAR
 if (harness.decision === 'reject') process.exitCode = 1;
 console.log(
   'Métricas simuladas (data/simulated-checkpoints.json): nenhum treino rodou. Troque o arquivo pelas métricas do seu treino.',
+);
+
+// --- 7. Payback e NPV em 12 meses -------------------------------------------------------------
+// Premissas. PONTO DE EXTENSÃO: troque pelas do seu caso.
+// 80 horas de engenharia a US$ 50: curadoria do dataset, treino e avaliação.
+const CAPEX_ENGINEERING_USD = 4_000;
+// Teto da faixa de preço de treino da tabela da OpenAI (US$ 3 a US$ 25 por milhão de tokens),
+// consultada em 19/11/2026. O treino cobra os tokens do train.jsonl uma vez por época.
+const TRAINING_USD_PER_MILLION_TOKENS = 25;
+const trainingJobUsd =
+  (report.train.estimatedTokens * hyperparams.epochs * TRAINING_USD_PER_MILLION_TOKENS) / 1_000_000;
+
+const paybackFor = (monthlyRequests: number) =>
+  calculateFineTuningPayback({
+    capexEngineeringUsd: CAPEX_ENGINEERING_USD,
+    trainingJobUsd,
+    monthlyRequests,
+    // Os dois custos por requisição saem do A/B do passo 3.
+    baselineCostPerReqUsd: fewShotCost,
+    fineTunedCostPerReqUsd: fineTunedCost,
+    // Modelo ajustado cobrado por token, como no passo 3. Em GPU própria, é este custo que sobe.
+    monthlyHostingUsd: 0,
+  });
+const paybacks = {
+  '100 mil requisições por mês': paybackFor(100_000),
+  '10 milhões de requisições por mês': paybackFor(10_000_000),
+};
+
+console.log(`\n7. Payback e NPV em ${NPV_HORIZON_MONTHS} meses: o investimento volta?`);
+console.table(
+  Object.fromEntries(
+    Object.entries(paybacks).map(([volume, payback]) => [
+      volume,
+      {
+        'investimento (USD)': payback.initialInvestmentUsd.toFixed(2),
+        'fluxo líquido mensal (USD)': payback.monthlyNetFlowUsd.toFixed(2),
+        'break-even (meses)': payback.breakEvenMonths === null ? 'nunca' : payback.breakEvenMonths.toFixed(1),
+        [`NPV em ${NPV_HORIZON_MONTHS} meses (USD)`]: payback.npv12MonthsUsd.toFixed(2),
+      },
+    ]),
+  ),
+);
+console.log(
+  `Premissas: US$ ${CAPEX_ENGINEERING_USD} de engenharia; job de treino de US$ ${trainingJobUsd.toFixed(2)} ` +
+    `(${report.train.estimatedTokens} tokens × ${hyperparams.epochs} épocas a US$ ${TRAINING_USD_PER_MILLION_TOKENS} por milhão); ` +
+    `sem custo fixo de hospedagem; desconto de ${percent(paybacks['100 mil requisições por mês'].monthlyDiscountRate)} ao mês. ` +
+    'Os custos por requisição são os do passo 3.',
 );

@@ -1,0 +1,18 @@
+[
+  {
+    "id": "politica-reembolso",
+    "text": "O cliente pode pedir reembolso em até 7 dias corridos depois da compra. O valor volta pelo mesmo meio de pagamento em até 10 dias úteis."
+  },
+  {
+    "id": "politica-credito",
+    "text": "O aumento de limite de crédito considera o histórico de pagamento dos últimos 12 meses e a renda comprovada. A decisão final é de um analista."
+  },
+  {
+    "id": "politica-privacidade",
+    "text": "Os dados pessoais são usados só para o atendimento, e o titular pode pedir a exclusão a qualquer momento."
+  },
+  {
+    "id": "manual-integracao",
+    "text": "A API de pagamentos usa uma chave de integração por ambiente. A chave fica no cofre de segredos e nunca é enviada por chat nem por e-mail."
+  }
+]

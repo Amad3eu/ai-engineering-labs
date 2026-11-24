@@ -7,7 +7,7 @@
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Monorepo de laboratórios práticos de **Engenharia de IA aplicada**, em TypeScript. Cada laboratório isola um padrão usado em produção (RAG híbrido, MCP, agentes, multiagente com aprovação humana, AIOps, datasets de fine-tuning) em um exemplo pequeno, executável e medido.
+Monorepo de laboratórios práticos de **Engenharia de IA aplicada**, em TypeScript. Cada laboratório isola um padrão usado em produção (RAG híbrido, MCP, agentes, multiagente com aprovação humana, AIOps, datasets de fine-tuning, governança com guardrails) em um exemplo pequeno, executável e medido.
 
 Três decisões valem para todos os laboratórios:
 
@@ -26,7 +26,7 @@ Os laboratórios não falam com provedores nem com o banco diretamente: consomem
 ```mermaid
 flowchart LR
   subgraph labs["labs/"]
-    LABS["01 · Prompts<br/>02 · RAG<br/>03 · MCP<br/>04 · Agentes<br/>05 · Multiagente<br/>06 · DevOps<br/>07 · Fine-Tuning"]
+    LABS["01 · Prompts<br/>02 · RAG<br/>03 · MCP<br/>04 · Agentes<br/>05 · Multiagente<br/>06 · DevOps<br/>07 · Fine-Tuning<br/>08 · Governança"]
   end
 
   subgraph packages["packages/ · @labs"]
@@ -70,6 +70,7 @@ flowchart LR
 | 05 | [Multi-Agent Systems](labs/05-multi-agent-systems) | Em progresso | Supervisor, hierárquico com subgrafos, `interrupt` e retomada, aprovação humana obrigatória | LangGraph, checkpointer |
 | 06 | [AI DevOps Copilot](labs/06-ai-devops-copilot) | Em progresso | ReAct sem framework, ferramentas somente leitura, dry-run de manifesto, defesa contra injeção via log | `yaml`, Zod |
 | 07 | [Fine-Tuning Datasets](labs/07-fine-tuning-datasets) | Em progresso | Decision framework (prompt × RAG × fine-tuning), dataset JSONL com gate de PII, quase duplicatas e alertas de qualidade, teste A/B com projeção de economia, plano de treino LoRA/QLoRA, harness de checkpoints (overfitting e catastrophic forgetting) e payback com NPV em 12 meses | Zod, `node:crypto` |
+| 08 | [AI Governance & Guardrails](labs/08-ai-governance-guardrails) | Em progresso | Guardrails de entrada e de saída, classificação de risco regulatório (EU AI Act e LGPD), circuit breaker de orçamento por tenant, trilha de auditoria encadeada por hash | Zod, `node:crypto` |
 
 Próximos experimentos:
 
@@ -82,6 +83,7 @@ Próximos experimentos:
 | 05 | Checkpointer persistente, com a pausa e a retomada em processos separados | Planejado |
 | 06 | Adaptador real de `kubectl` e aprovação humana para aplicar a correção | Planejado |
 | 07 | Disparo do treino e avaliação com centenas de exemplos | Planejado |
+| 08 | Classificador de injeção por modelo e fila de revisão humana com retomada | Planejado |
 
 ## Setup rápido
 
@@ -156,7 +158,8 @@ ai-engineering-labs/
 │   ├── 04-agent-architectures/
 │   ├── 05-multi-agent-systems/
 │   ├── 06-ai-devops-copilot/
-│   └── 07-fine-tuning-datasets/
+│   ├── 07-fine-tuning-datasets/
+│   └── 08-ai-governance-guardrails/
 ├── infra/init.sql               extensão vector, tabelas, índices HNSW e GIN
 ├── docker-compose.yml           PostgreSQL 16 + pgvector e Redis 7
 ├── CLAUDE.md · .cursorrules     regras de arquitetura para agentes de IA

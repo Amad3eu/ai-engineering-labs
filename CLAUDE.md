@@ -4,7 +4,7 @@ Contexto e regras para agentes de IA que trabalham neste repositório. As mesmas
 
 ## O que é
 
-Monorepo de laboratórios de Engenharia de IA aplicada, em TypeScript. Cada pasta de `labs/` isola um padrão (RAG, MCP, agentes, multiagente, AIOps, fine-tuning) em um exemplo executável. Três pacotes em `packages/` dão a base comum.
+Monorepo de laboratórios de Engenharia de IA aplicada, em TypeScript. Cada pasta de `labs/` isola um padrão (RAG, MCP, agentes, multiagente, AIOps, fine-tuning, governança) em um exemplo executável. Três pacotes em `packages/` dão a base comum.
 
 ## Comandos
 

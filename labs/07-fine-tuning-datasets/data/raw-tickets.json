@@ -45,6 +45,9 @@
   { "text": "Quantos usuários posso convidar no plano gratuito?", "category": "question", "priority": "P3" },
   { "text": "Vocês oferecem treinamento para equipes novas?", "category": "question", "priority": "P3" },
 
+  { "text": "Bom dia! Fui cobrado duas vezes na fatura de outubro, preciso do estorno.", "category": "billing", "priority": "P2" },
+  { "text": "Boa tarde, a API devolve erro 503 para todos os nossos clientes desde as 16h.", "category": "outage", "priority": "P1" },
+
   { "text": "ok", "category": "question", "priority": "P3" },
   { "text": "", "category": "billing", "priority": "P2" },
   { "text": "Ganhe dinheiro rápido clicando neste link agora mesmo!!!", "category": "spam", "priority": "P3" },

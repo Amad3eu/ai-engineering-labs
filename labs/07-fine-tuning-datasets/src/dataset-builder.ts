@@ -8,7 +8,8 @@ import { Category, type Example, parseTriage, triageJson } from './schema.js';
 
 // O pipeline do dataset:
 //
-//   dado bruto → limpeza (clean.ts) → divisão 80/20 → JSONL de chat → validação → relatório
+//   dado bruto → limpeza e gate de PII (clean.ts) → quase duplicatas → divisão 80/20
+//              → JSONL de chat → validação → relatório
 //
 // Tudo aqui é função pura, menos `writeDataset`, que grava os arquivos e relê para validar.
 
@@ -38,6 +39,72 @@ export const QUALITY_LIMITS = {
 // formatação de cada mensagem. Para orçamento de treino de verdade, conte com o tokenizador
 // do provedor.
 export const estimateTokens = (text: string) => Math.ceil(text.length / 4);
+
+// PONTO DE EXTENSÃO: os cortes da deduplicação aproximada.
+export const NEAR_DUPLICATE = {
+  /** Palavras por shingle. Dois preserva a ordem das palavras sem zerar a semelhança de ticket curto. */
+  shingleSize: 2,
+  /** Jaccard a partir do qual dois tickets são o mesmo ticket. */
+  threshold: 0.85,
+} as const;
+
+/** Saudação no começo do ticket: sai da comparação, não do texto. Vale sobre o texto já sem acento. */
+const GREETING = /^(?:(?:ola|oi|bom dia|boa tarde|boa noite|prezad[oa]s?)\s+)+/;
+
+/**
+ * Os shingles de um texto: os n-grams de palavras, depois de tirar o que não distingue um
+ * ticket do outro. Caixa, acento e pontuação saem, a saudação do começo sai, e todo número
+ * vira "0", para o ID do pedido não contar como diferença.
+ */
+export function shingles(text: string, size: number = NEAR_DUPLICATE.shingleSize): Set<string> {
+  const words = text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/\d+/g, '0')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(GREETING, '')
+    .split(' ')
+    .filter(Boolean);
+
+  // Texto mais curto que um shingle vira um shingle só, para ainda poder ser comparado.
+  if (words.length < size) return new Set(words.length > 0 ? [words.join(' ')] : []);
+  const result = new Set<string>();
+  for (let start = 0; start + size <= words.length; start++) result.add(words.slice(start, start + size).join(' '));
+  return result;
+}
+
+/** Jaccard: tamanho da interseção sobre o da união. 1 é idêntico, 0 é nada em comum. */
+export function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
+  // Conjunto vazio não tem conteúdo para comparar: não conta como duplicata de nada.
+  if (a.size === 0 || b.size === 0) return 0;
+  let shared = 0;
+  for (const shingle of a) if (b.has(shingle)) shared++;
+  return shared / (a.size + b.size - shared);
+}
+
+/**
+ * Tira os tickets quase idênticos: os que só diferem pela saudação, pelo ID ou por uma ou
+ * outra palavra. Fica o primeiro de cada grupo. Roda ANTES da divisão: quase duplicata nos
+ * dois lados faz a validação medir o que o modelo decorou.
+ *
+ * shortcut: compara cada exemplo com todos os que ficaram, O(n²). Serve até alguns milhares
+ * de exemplos; acima disso, troque por MinHash com LSH.
+ */
+export function dropNearDuplicates(
+  examples: Example[],
+  threshold: number = NEAR_DUPLICATE.threshold,
+): { kept: Example[]; dropped: number } {
+  const kept: Array<{ example: Example; shingles: Set<string> }> = [];
+  let dropped = 0;
+  for (const example of examples) {
+    const own = shingles(example.text);
+    if (kept.some((other) => jaccardSimilarity(own, other.shingles) >= threshold)) dropped++;
+    else kept.push({ example, shingles: own });
+  }
+  return { kept: kept.map(({ example }) => example), dropped };
+}
 
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 const byHash = (a: Example, b: Example) => hash(a.text).localeCompare(hash(b.text));
@@ -201,7 +268,8 @@ export function assessQuality(train: SplitStats, validation: SplitStats): Qualit
 
 export interface DatasetReport {
   raw: number;
-  dropped: CleanReport['dropped'];
+  dropped: CleanReport['dropped'] & { nearDuplicate: number };
+  piiRedactions: CleanReport['piiRedactions'];
   train: SplitStats;
   validation: SplitStats;
   alerts: QualityAlert[];
@@ -216,14 +284,15 @@ export interface Dataset {
 }
 
 /**
- * O pipeline inteiro, em memória: limpa, deduplica, divide e serializa. `system` é o prompt
+ * O pipeline inteiro, em memória: limpa, mascara PII, deduplica, divide e serializa. `system` é o prompt
  * que vai em cada linha, e tem que ser o mesmo que o modelo ajustado recebe em produção.
  *
  * PONTO DE EXTENSÃO: para outro domínio, troque o schema (schema.ts), a limpeza (clean.ts)
  * e o dado bruto. A divisão, a validação e os alertas não mudam.
  */
 export function buildDataset(records: unknown[], system: string, validationRatio = 0.2): Dataset {
-  const { kept, dropped } = cleanDataset(records);
+  const { kept: cleaned, dropped, piiRedactions } = cleanDataset(records);
+  const { kept, dropped: nearDuplicate } = dropNearDuplicates(cleaned);
   const { train, validation } = splitDataset(kept, validationRatio);
   const trainStats = splitStats(train, system);
   const validationStats = splitStats(validation, system);
@@ -234,7 +303,8 @@ export function buildDataset(records: unknown[], system: string, validationRatio
     files: { 'train.jsonl': toChatJsonl(train, system), 'val.jsonl': toChatJsonl(validation, system) },
     report: {
       raw: records.length,
-      dropped,
+      dropped: { ...dropped, nearDuplicate },
+      piiRedactions,
       train: trainStats,
       validation: validationStats,
       alerts: assessQuality(trainStats, validationStats),

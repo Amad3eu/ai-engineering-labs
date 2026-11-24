@@ -2,13 +2,14 @@
 
 ## Objetivo Técnico
 
-Responder, com código, às cinco perguntas de um fine-tuning: três antes do treino, uma sobre o plano dele e uma depois.
+Responder, com código, às seis perguntas de um fine-tuning: três antes do treino, uma sobre o plano dele, uma depois dele e uma sobre o dinheiro.
 
 1. **Vale treinar?** Um Decision Framework, `evaluateApproach(scenario)`, recebe cinco critérios do caso de uso e recomenda `prompt-only`, `rag`, `fine-tuning` ou `rag-plus-fine-tuning`, com a justificativa e os trade-offs. Entrada e saída são validadas com Zod.
-2. **O dataset está pronto?** Um pipeline limpa o dado bruto (Zod, remoção de e-mail, CPF e telefone, deduplicação), divide em `train.jsonl` (80%) e `val.jsonl` (20%), valida cada linha no formato de chat e reporta os tokens estimados e os alertas de qualidade.
+2. **O dataset está pronto?** Um pipeline valida o dado bruto com Zod, troca e-mail, CPF e telefone por `<EMAIL>`, `<CPF>` e `<PHONE>` antes de o texto entrar no dataset, e tira as duplicatas exatas e as quase duplicatas (Jaccard de 0,85 ou mais sobre shingles de palavras). Depois divide em `train.jsonl` (80%) e `val.jsonl` (20%), valida cada linha no formato de chat e reporta os tokens estimados e os alertas de qualidade.
 3. **O treino se pagaria?** Um teste A/B compara o modelo base com few-shot pesado contra o modelo ajustado com prompt enxuto: aderência ao schema, tokens por requisição e economia projetada em 100.000 requisições.
 4. **O treino cabe na GPU?** `buildLoraTrainingPlan(params)` escolhe rank, alpha, learning rate e épocas, estima os parâmetros treináveis e a VRAM de LoRA (16-bit) e de QLoRA (4-bit), e recomenda o método que cabe no hardware. Entrada e saída são validadas com Zod.
 5. **Qual checkpoint vai para produção?** `evaluateTrainingCheckpoints(checkpoints)` recebe as métricas de cada época, aponta onde o overfitting começa, bloqueia catastrophic forgetting e escolhe o checkpoint, ou recomenda rejeitar o treino.
+6. **O investimento volta?** `calculateFineTuningPayback(params)` recebe o custo de engenharia, o do job de treino, o volume mensal, o custo por requisição dos dois braços e a hospedagem. Devolve o fluxo líquido mensal, o break-even em meses e o NPV em 12 meses, com taxa de desconto mensal configurável.
 
 A tarefa é a triagem de tickets de suporte com saída em schema rígido: `{"category":"billing","priority":"P2"}`, e nada além disso.
 
@@ -24,7 +25,7 @@ flowchart TB
 
   subgraph dataset["2 · Pipeline do dataset"]
     direction LR
-    RAW[("raw-tickets.json")] --> CL["Limpar<br/>Zod, PII, duplicata"]
+    RAW[("raw-tickets.json")] --> CL["Limpar: Zod,<br/>gate de PII,<br/>duplicatas"]
     CL --> SP["Dividir 80/20<br/>por categoria"]
     SP --> JL["train.jsonl<br/>val.jsonl<br/>linhas validadas,<br/>tokens e alertas"]
   end
@@ -36,10 +37,10 @@ flowchart TB
   AB -->|"few-shot medido"| D4["4 · Decisão para<br/>este caso de uso"]
   D4 -->|"fine-tuning"| LP["5 · Plano LoRA<br/>ou QLoRA: rank,<br/>alpha, épocas,<br/>cabe na GPU?"]
   LP -.->|"treino, fora do lab:<br/>um checkpoint por época"| EH["6 · Harness de<br/>checkpoints:<br/>overfitting<br/>e forgetting"]
-  EH --> PROD(["promover<br/>ou rejeitar"])
+  EH -->|"promover<br/>ou rejeitar"| PB(["7 · Payback<br/>e NPV<br/>em 12 meses"])
 ```
 
-Os números são os seis passos de `src/index.ts`. O passo 4 roda o Decision Framework de novo, agora com o tamanho de few-shot que o A/B mediu. Entre o passo 5 e o 6 fica o treino, que o laboratório não roda.
+Os números são os sete passos de `src/index.ts`. O passo 4 roda o Decision Framework de novo, agora com o tamanho de few-shot que o A/B mediu. Entre o passo 5 e o 6 fica o treino, que o laboratório não roda. O passo 7 usa o custo por requisição do passo 3 e as épocas do passo 5.
 
 ### Matriz de decisão
 
@@ -69,30 +70,32 @@ O que o motor devolve para um caso de cada abordagem, e para este laboratório:
 | Perguntas sobre o manual interno | `weekly` | sim | `low` | 300 | `moderate` | `rag` |
 | Extração de contrato em JSON | `static` | não | `high` | 3.000 | `moderate` | `fine-tuning` |
 | Resposta com política, no tom da marca | `weekly` | sim | `high` | 2.500 | `strict` | `rag-plus-fine-tuning` |
-| Triagem de tickets (este lab) | `static` | não | `medium` | 1.248, medido no A/B | `strict` | `fine-tuning` |
+| Triagem de tickets (este lab) | `static` | não | `medium` | 1.247, medido no A/B | `strict` | `fine-tuning` |
 
 | Arquivo | Papel |
 | --- | --- |
 | `src/decision-framework.ts` | O motor de decisão e os casos de referência |
-| `src/dataset-builder.ts` | O pipeline: divisão, JSONL, validação, tokens e alertas |
+| `src/dataset-builder.ts` | O pipeline: quase duplicatas, divisão, JSONL, validação, tokens e alertas |
+| `src/pii-sanitizer.ts` | O gate de PII: `<EMAIL>`, `<CPF>` e `<PHONE>` no lugar do dado sensível |
 | `src/ab-eval.ts` | O teste A/B e a projeção de economia |
 | `src/lora-config.ts` | O plano de treino: hiperparâmetros, parâmetros treináveis, VRAM e método |
 | `src/model-eval-harness.ts` | O harness: overfitting, catastrophic forgetting e a escolha do checkpoint |
-| `src/clean.ts` | Limpeza do dado bruto: validação, PII, deduplicação |
+| `src/financial-npv.ts` | O payback: fluxo líquido mensal, break-even e NPV em 12 meses |
+| `src/clean.ts` | Limpeza do dado bruto: validação, chamada do gate de PII, duplicata exata |
 | `src/schema.ts` | O schema rígido da triagem e a régua de aderência |
 | `src/prompts.ts` | O prompt enxuto e o prompt few-shot |
 | `src/mock.ts` | Roteiro do provedor mock |
-| `src/index.ts` | Roda os seis passos |
+| `src/index.ts` | Roda os sete passos |
 | `data/raw-tickets.json` | Dado bruto de exemplo, com ruído de propósito |
 | `data/simulated-checkpoints.json` | Métricas de checkpoint de exemplo: um roteiro, não um treino |
 
 ## Como Executar
 
 ```bash
-# Os seis passos. Grava out/train.jsonl e out/val.jsonl
+# Os sete passos. Grava out/train.jsonl e out/val.jsonl
 pnpm --filter @labs/07-fine-tuning-datasets dev
 
-# Testes: decision framework, dataset, A/B, plano LoRA e harness de checkpoints
+# Testes: decision framework, gate de PII, dataset, A/B, plano LoRA, harness e payback
 pnpm --filter @labs/07-fine-tuning-datasets test
 ```
 
@@ -140,18 +143,20 @@ Em modelo aberto, o treino é LoRA ou QLoRA em GPU própria ou alugada. O passo 
 - **Aderência estrita.** A resposta inteira tem que ser o JSON do schema; bloco de código em volta ou chave a mais conta como falha. O A/B usa `generateText` de propósito: `generateObject` pede o formato ao provedor e ainda tenta corrigir, o que esconderia a falha que o teste conta.
 - **Divisão refeita a cada versão.** Cada categoria cede 20% para a validação, e a mesma entrada dá sempre a mesma divisão. Quando o dataset cresce, um exemplo pode trocar de lado. Para comparar modelos entre versões, decida pelo valor do hash de cada exemplo.
 - **Tokens estimados.** A conta é de ~4 caracteres por token. Serve para comparar os dois braços; para orçamento de treino, use o tokenizador do provedor.
-- **Remoção de PII por regex.** É barata e previsível, e deixa passar nome, endereço e formato fora do padrão. Dado real pede um detector dedicado e amostra revisada por gente antes do envio.
-- **Deduplicação quase exata.** Ignorar caixa, acento e pontuação pega a cópia óbvia. Paráfrase escapa e pode cair nos dois lados da divisão, o que infla o resultado da validação.
+- **Gate de PII por regex.** É barato, previsível e roda antes de o texto entrar no dataset. Deixa passar nome, endereço e formato fora do padrão, e 11 dígitos soltos podem levar o token errado (`<PHONE>` no lugar de `<CPF>`). Dado real pede um detector dedicado e amostra revisada por gente antes do envio.
+- **Quase duplicata não é paráfrase.** A comparação ignora caixa, acento, pontuação, a saudação do começo e o valor dos números, e tira o par com 0,85 ou mais de shingles em comum. Num ticket de 10 palavras, uma palavra trocada já derruba a semelhança para 0,67. O filtro pega o ticket repetido com outro ID ou outra saudação; a paráfrase escapa, e ainda pode cair nos dois lados da divisão e inflar a validação.
+- **Número vira zero na comparação.** Dois tickets que só diferem em um número, como erro 500 e erro 503, contam como o mesmo. Para triagem é o que se quer. Em domínio em que o número é o conteúdo, tire essa regra.
+- **Comparação par a par.** Cada ticket é comparado com todos os que ficaram, o que serve até alguns milhares de exemplos. Acima disso, o caminho é MinHash com LSH.
 - **Validação pequena.** Com 8 exemplos, um acerto muda a taxa em 12,5 pontos. Decidir entre modelos pede centenas de exemplos e intervalo de confiança.
 - **Limite do motor de decisão.** São cinco critérios e cortes fixos. Ele não olha o tamanho da base de conhecimento, a sensibilidade do dado nem a capacidade do time de manter um ciclo de treino.
 
 ### Dataset de exemplo
 
-Execução de 19/11/2026. De 48 registros brutos, 40 foram aproveitados: saíram 2 inválidos, 2 com rótulo desconhecido, 2 curtos demais e 2 duplicados.
+Execução de 19/11/2026. De 50 registros brutos, 40 foram aproveitados: saíram 2 inválidos, 2 com rótulo desconhecido, 2 curtos demais, 2 duplicados e 2 quase duplicados (a mesma mensagem com outra saudação, e com outra saudação e outros números). O gate de PII mascarou 1 CPF, 1 e-mail e 1 telefone.
 
 | Arquivo | Exemplos | % do total | Tokens estimados | billing | outage | access | question |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `train.jsonl` | 32 | 80% | 2.044 | 8 | 8 | 8 | 8 |
+| `train.jsonl` | 32 | 80% | 2.043 | 8 | 8 | 8 | 8 |
 | `val.jsonl` | 8 | 20% | 508 | 2 | 2 | 2 | 2 |
 
 Um alerta: treino com 32 exemplos, abaixo dos 50 recomendados. Os limites (mínimo de 10, recomendado de 50) são os do guia de fine-tuning da OpenAI, consultado em 19/11/2026.
@@ -162,21 +167,21 @@ Execução de 19/11/2026, sem chave de API, nos 8 tickets de validação.
 
 | Braço | Aderência ao schema | Tokens in/out por requisição |
 | --- | --- | --- |
-| `few-shot`: modelo base, 32 exemplos no prompt | 7 de 8 (roteiro) | 1.248 / 10 |
+| `few-shot`: modelo base, 32 exemplos no prompt | 7 de 8 (roteiro) | 1.247 / 10 |
 | `fine-tuned`: modelo ajustado simulado, prompt enxuto | 8 de 8 (roteiro) | 54 / 10 |
 
 Projeção para 100.000 requisições:
 
 | Braço | USD por milhão de tokens (in/out) | USD por requisição | USD em 100.000 requisições |
 | --- | --- | --- | --- |
-| `few-shot` | 0,10 / 0,50 | 0,000130 | 12,99 |
+| `few-shot` | 0,10 / 0,50 | 0,000130 | 12,98 |
 | `fine-tuned` | 0,20 / 1,00 | 0,000021 | 2,07 |
 
-Economia projetada: **US$ 10,92 (84%)**.
+Economia projetada: **US$ 10,91 (84%)**.
 
 O que é medido e o que é premissa nesta simulação:
 
-- **Tokens** saem do tamanho real dos dois prompts, na estimativa de ~4 caracteres por token. O few-shot gasta 23 vezes mais tokens de entrada: 1.248 contra 54.
+- **Tokens** saem do tamanho real dos dois prompts, na estimativa de ~4 caracteres por token. O few-shot gasta 23 vezes mais tokens de entrada: 1.247 contra 54.
 - **Aderência** é roteiro do mock. O braço `few-shot` foi roteirizado para embrulhar o JSON em bloco de código em 1 a cada 8 respostas, só para a métrica aparecer na tabela. Não é evidência de que modelo base erra nessa proporção.
 - **Preço do modelo base** é o de tabela de `@labs/shared-llm` para `gpt-6-luna`.
 - **Preço do modelo ajustado** é 2× o do base. É a proporção da [tabela de preços da OpenAI](https://developers.openai.com/api/docs/pricing) para modelos pequenos (`gpt-4.1-mini`, `gpt-4o-mini`), consultada em 19/11/2026. Nos modelos grandes a proporção é 1,5×.
@@ -267,6 +272,40 @@ Roteiro de 19/11/2026, em `data/simulated-checkpoints.json`. O modelo base faz 8
 | 4 | 0,30 | 0,96 | severo (+20%) | 89% | 68%, 14 pontos abaixo do base | reprovado |
 
 O overfitting começa na época 3, a época 4 dispara o alerta crítico de catastrophic forgetting, e vai para produção a época 2. Os números são um roteiro, escrito para os três estados aparecerem na tabela: nenhum treino rodou.
+
+### Payback e NPV em 12 meses
+
+As fórmulas de `calculateFineTuningPayback`:
+
+| Saída | Fórmula |
+| --- | --- |
+| Investimento, no mês 0 | `capexEngineeringUsd + trainingJobUsd` |
+| Fluxo líquido mensal | `monthlyRequests × (baselineCostPerReqUsd − fineTunedCostPerReqUsd) − monthlyHostingUsd` |
+| Break-even, em meses | `investimento ÷ fluxo líquido mensal`; `null` quando o fluxo é zero ou negativo |
+| NPV em 12 meses | `−investimento + Σ fluxo ÷ (1 + taxa)^mês`, do mês 1 ao 12 |
+
+A taxa de desconto é o segundo argumento, em fração ao mês, e o padrão é 1%. O break-even é o payback simples, sem desconto.
+
+Execução de 19/11/2026, em modo mock, com os custos por requisição do A/B acima: US$ 0,000130 no few-shot e US$ 0,000021 no modelo ajustado.
+
+| Volume | Investimento (USD) | Fluxo líquido mensal (USD) | Break-even (meses) | NPV em 12 meses (USD) |
+| --- | --- | --- | --- | --- |
+| 100 mil requisições por mês | 4.000,20 | 10,91 | 366,5 | −3.877,37 |
+| 10 milhões de requisições por mês | 4.000,20 | 1.091,38 | 3,7 | 8.283,31 |
+
+O que é premissa nesta conta:
+
+- **US$ 4.000 de engenharia**: 80 horas a US$ 50, para curadoria do dataset, treino e avaliação.
+- **US$ 0,20 de job de treino**: os 2.043 tokens do `train.jsonl`, vezes as 4 épocas do plano, a US$ 25 por milhão de tokens. É o teto da faixa de preço de treino da tabela da OpenAI (US$ 3 a US$ 25), consultada em 19/11/2026.
+- **Sem custo fixo de hospedagem**: o modelo ajustado é cobrado por token, como no A/B. Em GPU própria, o custo por requisição cai e a hospedagem sobe.
+- **Desconto de 1% ao mês.**
+
+O que a conta mostra e o que ela deixa de fora:
+
+- **O investimento é engenharia, não treino.** O job custa centavos; as horas de gente custam os outros US$ 4.000.
+- **O volume decide.** Com 100 mil requisições por mês, o break-even passa de 30 anos. Com 10 milhões, vem em menos de 4 meses.
+- **Custo por requisição parado no tempo.** A conta repete os mesmos dois custos nos 12 meses. Um modelo base novo e mais barato encolhe a economia, e um modelo base aposentado obriga a treinar de novo.
+- **Só o custo entra.** O ganho de aderência ao schema e de latência não tem valor em dólar aqui, e a manutenção do dataset também não.
 
 ### Treino real
 

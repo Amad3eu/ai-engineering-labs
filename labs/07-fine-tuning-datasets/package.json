@@ -2,7 +2,7 @@
   "name": "@labs/07-fine-tuning-datasets",
   "version": "0.1.0",
   "private": true,
-  "description": "Decision framework, dataset JSONL, teste A/B, plano LoRA/QLoRA e harness de checkpoints de fine-tuning.",
+  "description": "Decision framework, dataset JSONL com gate de PII, teste A/B, plano LoRA/QLoRA, harness de checkpoints e payback de fine-tuning.",
   "license": "MIT",
   "type": "module",
   "scripts": {

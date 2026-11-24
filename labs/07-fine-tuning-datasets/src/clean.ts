@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { type PiiType, sanitizePii } from './pii-sanitizer.js';
 import { Category, type Example, Priority } from './schema.js';
 
 // Funções puras de limpeza do dado bruto. Ficam separadas do pipeline porque são o que mais
@@ -11,22 +12,7 @@ const MIN_CHARS = 15;
 
 export const normalizeWhitespace = (text: string) => text.replace(/\s+/g, ' ').trim();
 
-// shortcut: regex cobre e-mail, CPF e telefone nos formatos comuns no Brasil; nome de pessoa,
-// endereço e formatos soltos escapam. Antes de enviar dado real para treino, passe por um
-// detector de PII de verdade e por uma amostra revisada por gente.
-//
-// A ordem importa: 11 dígitos sem pontuação servem tanto para celular quanto para CPF.
-// O CPF pontuado sai primeiro, depois o telefone, e o que sobrar com 11 dígitos é tratado
-// como CPF. Na dúvida o número some do texto de qualquer jeito; só a etiqueta pode errar.
-export function redactPii(text: string): string {
-  return text
-    .replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, '[EMAIL]')
-    .replace(/\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/g, '[CPF]')
-    .replace(/(?:\+55\s?)?\(?\b\d{2}\)?\s?9?\d{4}[-\s]?\d{4}\b/g, '[TELEFONE]')
-    .replace(/\b\d{11}\b/g, '[CPF]');
-}
-
-/** Chave de comparação: ignora caixa, acento e pontuação, para pegar a duplicata quase igual. */
+/** Chave da duplicata exata: ignora caixa, acento e pontuação. A aproximada fica em dataset-builder.ts. */
 const dedupeKey = (text: string) =>
   text
     .toLowerCase()
@@ -38,17 +24,23 @@ const dedupeKey = (text: string) =>
 export interface CleanReport {
   kept: Example[];
   dropped: { invalid: number; unknownLabel: number; tooShort: number; duplicate: number };
+  /** Quantas ocorrências o gate de PII mascarou, em todo texto que chegou a ele, descartado depois ou não. */
+  piiRedactions: Record<PiiType, number>;
 }
 
 /**
- * Valida, normaliza, remove PII e deduplica. Devolve também a contagem do que saiu e por
+ * Valida, normaliza, mascara PII e deduplica. Devolve também a contagem do que saiu e por
  * quê: descartar em silêncio esconde problema na origem do dado.
  *
  * PONTO DE EXTENSÃO: detectar o mesmo texto com rótulos diferentes (hoje vale o primeiro)
  * e filtrar idioma entram como passos aqui.
  */
 export function cleanDataset(records: unknown[]): CleanReport {
-  const report: CleanReport = { kept: [], dropped: { invalid: 0, unknownLabel: 0, tooShort: 0, duplicate: 0 } };
+  const report: CleanReport = {
+    kept: [],
+    dropped: { invalid: 0, unknownLabel: 0, tooShort: 0, duplicate: 0 },
+    piiRedactions: { CPF: 0, EMAIL: 0, PHONE: 0 },
+  };
   const seen = new Set<string>();
 
   for (const record of records) {
@@ -64,7 +56,9 @@ export function cleanDataset(records: unknown[]): CleanReport {
       report.dropped.unknownLabel++;
       continue;
     }
-    const text = redactPii(normalizeWhitespace(raw.data.text));
+    // O gate de PII vem antes de qualquer passo que guarde ou compare o texto.
+    const { sanitizedText: text, redactions } = sanitizePii(normalizeWhitespace(raw.data.text));
+    for (const { type, count } of redactions) report.piiRedactions[type] += count;
     if (text.length < MIN_CHARS) {
       report.dropped.tooShort++;
       continue;
